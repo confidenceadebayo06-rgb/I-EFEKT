@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique @db.VarChar(254)
+  passwordHash String
+  handle String @unique @db.VarChar(24)
+  displayName String @db.VarChar(60)
+  bio String @default("") @db.VarChar(300)
+  avatarUrl String? @db.VarChar(2048)
+  emailVerifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  posts Post[]
+  sentMessages Message[]
+  memberships ConversationMember[]
+  followsOut Follow[] @relation("follower")
+  followsIn Follow[] @relation("following")
+  likes Like[]
+  comments Comment[]
+  preferences Preference?
+  stories Story[]
+  groupMemberships GroupMember[]
+  groupMessages GroupMessage[]
+  communityMemberships CommunityMember[]
+  challengeEntries ChallengeEntry[]
+  reports Report[]
+  syncChanges SyncChange[]
+  creatorTips CreatorTip[] @relation("creatorTips")
+  sentTips CreatorTip[] @relation("sentTips")
+  fanQuestions FanQuestion[]
+  playlists Playlist[]
+  mediaAssets MediaAsset[]
+  verificationTokens VerificationToken[]
+  resetTokens PasswordResetToken[]
+}
+model VerificationToken {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  expiresAt DateTime
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+model PasswordResetToken {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  expiresAt DateTime
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+model Post {
+  id String @id @default(cuid())
+  userId String
+  caption String @default("") @db.VarChar(2200)
+  mediaUrl String @db.VarChar(2048)
+  mediaType String @default("video")
+  genre String?
+  track String?
+  originalAudio Boolean @default(false)
+  filter String?
+  speed Float @default(1)
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likes Like[]
+  comments Comment[]
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+model Follow {
+  id String @id @default(cuid())
+  followerId String
+  followingId String
+  createdAt DateTime @default(now())
+  follower User @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("following", fields: [followingId], references: [id], onDelete: Cascade)
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+model Like {
+  id String @id @default(cuid())
+  userId String
+  postId String
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  @@unique([userId, postId])
+  @@index([postId])
+}
+model Comment {
+  id String @id @default(cuid())
+  userId String
+  postId String
+  body String @db.Text
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  @@index([postId, createdAt])
+}
+model Conversation {
+  id String @id @default(cuid())
+  createdAt DateTime @default(now())
+  members ConversationMember[]
+  messages Message[]
+}
+model ConversationMember {
+  id String @id @default(cuid())
+  conversationId String
+  userId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([conversationId, userId])
+}
+model Message {
+  id String @id @default(cuid())
+  conversationId String
+  senderId String
+  body String @db.Text
+  clientId String?
+  createdAt DateTime @default(now())
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  @@unique([senderId, clientId])
+  @@index([conversationId, createdAt])
+}
+model Preference {
+  id String @id @default(cuid())
+  userId String @unique
+  enabled Boolean @default(false)
+  preferences Json
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model SyncChange {
+  id BigInt @id @default(autoincrement())
+  userId String
+  entityType String
+  entityId String
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, id])
+}
+model Story {
+  id String @id @default(cuid())
+  userId String
+  text String @default("") @db.VarChar(500)
+  mediaUrl String? @db.VarChar(2048)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+}
+model SocialGroup {
+  id String @id @default(cuid())
+  name String @db.VarChar(80)
+  ownerId String
+  createdAt DateTime @default(now())
+  members GroupMember[]
+  messages GroupMessage[]
+}
+model GroupMember {
+  id String @id @default(cuid())
+  groupId String
+  userId String
+  group SocialGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([groupId, userId])
+}
+model GroupMessage {
+  id String @id @default(cuid())
+  groupId String
+  userId String
+  body String @db.Text
+  createdAt DateTime @default(now())
+  group SocialGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([groupId, createdAt])
+}
+model Community {
+  id String @id @default(cuid())
+  name String @unique
+  description String @default("") @db.VarChar(1000)
+  members CommunityMember[]
+}
+model CommunityMember {
+  id String @id @default(cuid())
+  communityId String
+  userId String
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([communityId, userId])
+}
+model Challenge {
+  id String @id @default(cuid())
+  title String
+  description String @default("") @db.VarChar(1000)
+  startsAt DateTime @default(now())
+  endsAt DateTime?
+  entries ChallengeEntry[]
+}
+model ChallengeEntry {
+  id String @id @default(cuid())
+  challengeId String
+  userId String
+  createdAt DateTime @default(now())
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([challengeId, userId])
+}
+model CreatorTip {
+  id String @id @default(cuid())
+  senderId String
+  creatorId String
+  amount Int
+  currency String @default("EFK")
+  status String @default("pending_provider")
+  createdAt DateTime @default(now())
+  sender User @relation("sentTips", fields: [senderId], references: [id])
+  creator User @relation("creatorTips", fields: [creatorId], references: [id])
+}
+model FanQuestion {
+  id String @id @default(cuid())
+  userId String
+  creatorHandle String
+  question String @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model Playlist {
+  id String @id @default(cuid())
+  userId String
+  title String @db.VarChar(100)
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tracks PlaylistTrack[]
+}
+model PlaylistTrack {
+  id String @id @default(cuid())
+  playlistId String
+  title String @db.VarChar(200)
+  position Int @default(0)
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+}
+model Report {
+  id String @id @default(cuid())
+  reporterId String
+  postId String?
+  reason String @db.VarChar(60)
+  details String @default("") @db.VarChar(1000)
+  status String @default("open")
+  createdAt DateTime @default(now())
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+}
+model MediaAsset {
+  id String @id @default(cuid())
+  userId String
+  objectKey String @db.VarChar(512)
+  contentType String @db.VarChar(255)
+  size Int
+  status String @default("pending")
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
