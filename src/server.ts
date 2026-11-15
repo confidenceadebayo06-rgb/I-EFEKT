@@ -160,6 +160,7 @@ const sendMail = async (to: string, subject: string, html: string) => {
 
  // Dropbox offline OAuth connection. Refresh tokens are encrypted at rest with AES-256-GCM.
 app.get('/api/backup/dropbox/connect', { preHandler: auth }, async (req, reply) => {
+  if (!process.env.DROPBOX_BACKUP_ADMIN_USER_ID || req.user!.id !== process.env.DROPBOX_BACKUP_ADMIN_USER_ID) return reply.code(403).send({ error: 'Only the configured backup administrator can connect Dropbox.' });
   const appKey = process.env.DROPBOX_APP_KEY;
   const redirectUri = process.env.DROPBOX_REDIRECT_URI;
   if (!appKey || !process.env.DROPBOX_APP_SECRET || !redirectUri || !process.env.DROPBOX_TOKEN_ENCRYPTION_KEY) {
@@ -207,6 +208,8 @@ app.get('/api/backup/dropbox/callback', { logLevel: 'silent' }, async (req, repl
     if (!response.ok) throw new Error('Dropbox token exchange failed.');
     const tokenData = await response.json() as { refresh_token?: string; account_id?: string; scope?: string };
     if (!tokenData.refresh_token) throw new Error('Dropbox did not return an offline refresh token.');
+    const grantedScopes = new Set(String(tokenData.scope || '').split(/\\s+/).filter(Boolean));
+    if (dropboxScopes.some(scope => !grantedScopes.has(scope))) throw new Error('Dropbox did not grant every required backup scope.');
     const encrypted = encryptDropboxToken(tokenData.refresh_token);
     await prisma.dropboxCredential.upsert({
       where: { id: 1 },
