@@ -11,7 +11,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createCipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -41,6 +41,20 @@ const mailer = nodemailer.createTransport({
 type SessionUser = { id: string; email: string; handle: string; sessionId: string };
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+const dropboxStateCookie = 'iefekt_dropbox_oauth_state';
+const dropboxScopes = (process.env.DROPBOX_OAUTH_SCOPES || 'files.content.write files.content.read files.metadata.read account_info.read').split(/\s+/).filter(Boolean);
+const getDropboxEncryptionKey = () => {
+  const encoded = process.env.DROPBOX_TOKEN_ENCRYPTION_KEY || '';
+  const key = Buffer.from(encoded, 'base64');
+  if (key.length !== 32) throw new Error('DROPBOX_TOKEN_ENCRYPTION_KEY must be base64-encoded 32-byte key.');
+  return key;
+};
+const encryptDropboxToken = (token: string) => {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', getDropboxEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  return { encryptedRefreshToken: ciphertext.toString('base64'), iv: iv.toString('base64'), authTag: cipher.getAuthTag().toString('base64') };
+};
 const sessionTtlDays = Math.min(90, Math.max(1, Number(process.env.SESSION_TTL_DAYS || 30)));
 const sessionCookieOptions = { path: '/', httpOnly: true, sameSite: 'lax' as const, secure: process.env.COOKIE_SECURE === 'true', maxAge: 60 * 60 * 24 * sessionTtlDays };
 const createSession = async (user: { id: string; email: string; handle: string }, req: FastifyRequest, reply: any) => {
@@ -140,6 +154,70 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
 const sendMail = async (to: string, subject: string, html: string) => {
   await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
 };
+
+
+ // Dropbox offline OAuth connection. Refresh tokens are encrypted at rest with AES-256-GCM.
+app.get('/api/backup/dropbox/connect', { preHandler: auth }, async (req, reply) => {
+  const appKey = process.env.DROPBOX_APP_KEY;
+  const redirectUri = process.env.DROPBOX_REDIRECT_URI;
+  if (!appKey || !process.env.DROPBOX_APP_SECRET || !redirectUri || !process.env.DROPBOX_TOKEN_ENCRYPTION_KEY) {
+    return reply.code(503).send({ error: 'Dropbox backup connection is not configured on the server.' });
+  }
+  let redirect: URL;
+  try { redirect = new URL(redirectUri); getDropboxEncryptionKey(); }
+  catch { return reply.code(503).send({ error: 'Dropbox backup connection configuration is invalid.' }); }
+  if (process.env.NODE_ENV === 'production' && redirect.protocol !== 'https:') {
+    return reply.code(503).send({ error: 'Dropbox redirect URI must use HTTPS in production.' });
+  }
+  const state = randomBytes(32).toString('base64url');
+  reply.setCookie(dropboxStateCookie, state, { path: '/api/backup/dropbox/callback', httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', maxAge: 600 });
+  const authorize = new URL('https://www.dropbox.com/oauth2/authorize');
+  authorize.searchParams.set('client_id', appKey);
+  authorize.searchParams.set('response_type', 'code');
+  authorize.searchParams.set('token_access_type', 'offline');
+  authorize.searchParams.set('redirect_uri', redirect.toString());
+  authorize.searchParams.set('state', state);
+  authorize.searchParams.set('scope', dropboxScopes.join(' '));
+  await audit(req.user!.id, 'backup.dropbox.oauth_started', req);
+  return reply.redirect(authorize.toString());
+});
+
+app.get('/api/backup/dropbox/callback', async (req, reply) => {
+  const query = req.query as { code?: string; state?: string; error?: string };
+  const expectedState = req.cookies[dropboxStateCookie];
+  reply.clearCookie(dropboxStateCookie, { path: '/api/backup/dropbox/callback' });
+  if (query.error || !query.code || !query.state || !expectedState || query.state.length > 256 || query.state !== expectedState) {
+    return reply.redirect(`${origin}/?backup=connection-failed`);
+  }
+  const appKey = process.env.DROPBOX_APP_KEY;
+  const appSecret = process.env.DROPBOX_APP_SECRET;
+  const redirectUri = process.env.DROPBOX_REDIRECT_URI;
+  if (!appKey || !appSecret || !redirectUri) return reply.redirect(`${origin}/?backup=connection-failed`);
+  try {
+    const body = new URLSearchParams({ code: query.code, grant_type: 'authorization_code', redirect_uri: redirectUri });
+    const basic = Buffer.from(`${appKey}:${appSecret}`).toString('base64');
+    const response = await fetch('https://api.dropboxapi.com/oauth2/token', {
+      method: 'POST',
+      headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!response.ok) throw new Error('Dropbox token exchange failed.');
+    const tokenData = await response.json() as { refresh_token?: string; account_id?: string; scope?: string };
+    if (!tokenData.refresh_token) throw new Error('Dropbox did not return an offline refresh token.');
+    const encrypted = encryptDropboxToken(tokenData.refresh_token);
+    await prisma.dropboxCredential.upsert({
+      where: { id: 1 },
+      create: { id: 1, ...encrypted, accountId: tokenData.account_id || null, connectedAt: new Date() },
+      update: { ...encrypted, accountId: tokenData.account_id || null, connectedAt: new Date() }
+    });
+    await prisma.auditLog.create({ data: { action: 'backup.dropbox.oauth_connected', metadata: { scopes: tokenData.scope || null } } });
+    return reply.redirect(`${origin}/?backup=connected`);
+  } catch (error) {
+    req.log.error({ error }, 'Dropbox OAuth callback failed');
+    return reply.redirect(`${origin}/?backup=connection-failed`);
+  }
+});
 
 app.get('/api/health', async (_req, reply) => {
   try {
