@@ -116,6 +116,7 @@ async function main() {
     }
     const remotePath = await uploadFile(finalPath, path.basename(finalPath));
     process.stdout.write(JSON.stringify({ remotePath, sha256: digest, bytes }) + '\n');
+    await fs.rm(finalPath, { force: true });
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
     await prisma.$disconnect();
