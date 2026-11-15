@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { Redis } from 'ioredis';
 
-export function startBackupScheduler(redis: Redis, log: { info: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void }) {
+export function startBackupScheduler(redis: Redis, log: { info: (...args: any[]) => void; error: (...args: any[]) => void }) {
   const check = async () => {
     const now = new Date();
     if (now.getUTCHours() < 3) return;
