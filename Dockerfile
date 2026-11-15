@@ -13,12 +13,13 @@ RUN npm run engine:build && npx prisma generate && npx tsc -p tsconfig.json
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache libstdc++ openssl && addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache libstdc++ openssl mariadb-client && addgroup -S app && adduser -S app -G app
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/build ./build
 COPY --from=build --chown=app:app /app/prisma ./prisma
 COPY --from=build --chown=app:app /app/package.json ./package.json
+COPY --from=build --chown=app:app /app/scripts ./scripts
 COPY --chown=app:app public ./public
 USER app
 EXPOSE 3000
