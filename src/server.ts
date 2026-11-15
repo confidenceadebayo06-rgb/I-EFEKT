@@ -6,7 +6,7 @@ import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
