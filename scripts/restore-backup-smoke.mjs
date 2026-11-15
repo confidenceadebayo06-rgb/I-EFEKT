@@ -24,7 +24,12 @@ async function main() {
     await pipe(createReadStream(file,{start:newline+1}),decipher,createGunzip(),restore.stdin);
     const code=await new Promise((resolve,reject)=>{restore.once('error',reject);restore.once('close',resolve);});
     if(code!==0) throw new Error('Restore import failed: '+restoreErr.slice(0,1000));
-    process.stdout.write('Encrypted backup decrypted and imported into isolated database '+target+' successfully.\n');
+    const verifySql = 'SELECT COUNT(*) FROM `'+target+'`.BackupSmokeCheck WHERE id=1 AND marker=\'restore-ok\'';
+    const verify = spawn('mariadb',['--batch','--skip-column-names','--host',db.host,'--port',db.port,'--user',db.user,'--execute',verifySql],{env,stdio:['ignore','pipe','pipe']});
+    let verified=''; let verifyErr=''; verify.stdout.setEncoding('utf8'); verify.stdout.on('data',c=>verified+=c); verify.stderr.on('data',c=>verifyErr+=c);
+    const verifyCode=await new Promise((resolve,reject)=>{verify.once('error',reject);verify.once('close',resolve);});
+    if(verifyCode!==0 || verified.trim()!=='1') throw new Error('Restored data verification failed: '+verifyErr.slice(0,1000));
+    process.stdout.write('Encrypted backup decrypted, imported, and verified in isolated database '+target+'.\n');
   } finally {
     await new Promise(resolve=>{const drop=spawn('mariadb',['--host',db.host,'--port',db.port,'--user',db.user,'--execute','DROP DATABASE IF EXISTS \`'+target+'\`'],{env,stdio:'ignore'});drop.once('close',resolve);drop.once('error',resolve);});
   }
