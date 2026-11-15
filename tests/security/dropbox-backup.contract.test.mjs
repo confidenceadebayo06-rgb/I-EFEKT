@@ -14,6 +14,7 @@ const [server, backup, scheduler, restore, schema, migration] = await Promise.al
 test('Dropbox OAuth is offline, state-checked, admin-gated, and least-privilege', () => {
   assert.match(server, /DROPBOX_BACKUP_ADMIN_USER_ID/);
   assert.match(server, /token_access_type', 'offline'/);
+  assert.match(server, /split\(\/\\s\+\/\)/);
   assert.match(server, /dropboxStateCookie/);
   assert.match(server, /maxAge: 600/);
   assert.match(server, /logLevel: 'silent'/);
