@@ -11,7 +11,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -46,7 +46,7 @@ const sessionCookieOptions = { path: '/', httpOnly: true, sameSite: 'lax' as con
 const createSession = async (user: { id: string; email: string; handle: string }, req: FastifyRequest, reply: any) => {
   const raw = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + sessionTtlDays * 86400000);
-  const row = await prisma.deviceSession.create({ data: { userId: user.id, tokenHash: hashToken(raw), expiresAt, deviceName: String(req.headers['x-device-name'] || '').slice(0, 120) || null, userAgent: String(req.headers['user-agent'] || '').slice(0, 512) || null, ipHash: process.env.SESSION_IP_HASH_KEY ? createHash('sha256').update(process.env.SESSION_IP_HASH_KEY + req.ip).digest('hex') : null } });
+  const row = await prisma.deviceSession.create({ data: { userId: user.id, tokenHash: hashToken(raw), expiresAt, deviceName: String(req.headers['x-device-name'] || '').slice(0, 120) || null, userAgent: String(req.headers['user-agent'] || '').slice(0, 512) || null, ipHash: process.env.SESSION_IP_HASH_KEY ? createHmac('sha256', process.env.SESSION_IP_HASH_KEY).update(req.ip).digest('hex') : null } });
   reply.setCookie(cookieName, raw, sessionCookieOptions);
   return row;
 };
@@ -113,7 +113,7 @@ app.addHook('preHandler', async (req, reply) => {
   if (session) {
     if (session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) { req.user = null; reply.clearCookie(cookieName, { path: '/' }); return; }
     req.user = { id: session.user.id, email: session.user.email, handle: session.user.handle, sessionId: session.id };
-    void prisma.deviceSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(error => req.log.warn({ error }, 'Session activity update failed'));
+    if (Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) void prisma.deviceSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(error => req.log.warn({ error }, 'Session activity update failed'));
     return;
   }
   // Exchange a still-valid legacy JWT once, then replace it with an opaque revocable session.
