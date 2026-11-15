@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [server, backup, scheduler, restore, schema, migration] = await Promise.all([
+const [server, backup, scheduler, restore, liveSmoke, schema, migration] = await Promise.all([
   readFile(new URL('../../src/server.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../scripts/backup-mysql.mjs', import.meta.url), 'utf8'),
   readFile(new URL('../../src/backupScheduler.ts', import.meta.url), 'utf8'),
@@ -57,4 +57,14 @@ test('encrypted Dropbox credential model and SQL migration agree', () => {
     assert.match(schema, new RegExp('\\b' + field + '\\b'));
     assert.match(migration, new RegExp('`' + field + '`'));
   }
+});
+
+test('live Dropbox round-trip test is opt-in and restricted to disposable databases', () => {
+  assert.match(liveSmoke, /IEFEKT_ENABLE_LIVE_DROPBOX_TEST !== '1'/);
+  assert.match(liveSmoke, /NODE_ENV === 'production'/);
+  assert.match(liveSmoke, /iefekt_\(\?:ci\|test\|testing\|staging\)/);
+  assert.match(liveSmoke, /content\.dropboxapi\.com\/2\/files\/download/);
+  assert.match(liveSmoke, /files\/delete_v2/);
+  assert.match(liveSmoke, /SHA-256/);
+  assert.match(liveSmoke, /restore-backup-smoke\.mjs/);
 });
