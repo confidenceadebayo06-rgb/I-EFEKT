@@ -219,7 +219,7 @@ app.get('/api/backup/dropbox/callback', { logLevel: 'silent' }, async (req, repl
     await prisma.auditLog.create({ data: { action: 'backup.dropbox.oauth_connected', metadata: { scopes: tokenData.scope || null } } });
     return reply.redirect(`${origin}/?backup=connected`);
   } catch (error) {
-    req.log.error({ error }, 'Dropbox OAuth callback failed');
+    req.log.error({ errorType: error instanceof Error ? error.name : 'unknown' }, 'Dropbox OAuth callback failed');
     return reply.redirect(`${origin}/?backup=connection-failed`);
   }
 });
