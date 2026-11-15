@@ -41,5 +41,7 @@ jobs:
         run: npx prisma db push
       - name: Build TypeScript and C++ ranking engine
         run: npm run build
+      - name: Validate existing PWA inline JavaScript
+        run: node tests/security/check-public-inline-scripts.mjs
       - name: Confirm Phase 1 session models are generated
         run: node -e "const p = require('./node_modules/.prisma/client'); if (!p.Prisma) process.exit(1); console.log('Prisma client generated')"
