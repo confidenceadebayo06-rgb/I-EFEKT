@@ -52,7 +52,7 @@ The additive Prisma models and matching MySQL migration in this package provide:
 - expiration, last-seen and revocation timestamps;
 - security audit records with optional user association.
 
-These models are schema groundwork. The current authentication routes are not yet wired to them; Phase 1 is not complete until the route and Socket.IO changes above are implemented and the security tests pass.
+These models are now wired into the authentication middleware and Socket.IO handshake on this feature branch. Login and email verification issue random opaque cookies; only token hashes are persisted. Logout revokes the current session, password reset revokes all sessions, session listing/revocation endpoints are available, and Socket.IO checks active session status at connection and periodically while connected. A one-time legacy JWT exchange is included for existing browser sessions. This is implementation work on a feature branch; Phase 1 is not complete until CI, staging integration tests, migration review and two-device verification pass.
 
 ## API contract
 
