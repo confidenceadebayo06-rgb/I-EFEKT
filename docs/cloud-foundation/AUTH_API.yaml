@@ -1,0 +1,149 @@
+openapi: 3.1.0
+info:
+  title: I-EFEKT Authentication API
+  version: 1.0.0
+  description: |
+    Intended contract for email identity and revocable device sessions.
+    Cookie authentication uses an opaque server-managed session; never store
+    session credentials in localStorage. Existing /api routes remain compatible
+    while the frontend migrates incrementally.
+servers:
+  - url: https://{host}
+    variables:
+      host:
+        default: api.example.invalid
+paths:
+  /api/auth/register:
+    post:
+      summary: Register with email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, handle, displayName]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, minLength: 12, maxLength: 128 }
+                handle: { type: string, pattern: '^[A-Za-z0-9_]{3,24}$' }
+                displayName: { type: string, minLength: 1, maxLength: 60 }
+      responses:
+        '201': { description: Verification email queued }
+        '400': { description: Invalid input }
+        '409': { description: Email or handle unavailable }
+        '429': { description: Rate limited }
+  /api/auth/verify:
+    get:
+      summary: Consume single-use email verification token
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '303': { description: Redirect after successful verification }
+        '400': { description: Invalid, expired or consumed token }
+  /api/auth/login:
+    post:
+      summary: Create a revocable device session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authenticated; sets an opaque HttpOnly session cookie
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: Secure; HttpOnly; SameSite=Lax; Path=/
+        '401': { description: Invalid credentials }
+        '403': { description: Email not verified }
+        '429': { description: Rate limited }
+  /api/auth/logout:
+    post:
+      summary: Revoke current session and clear cookie
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: Session revoked }
+        '401': { description: Not authenticated }
+  /api/auth/logout-others:
+    post:
+      summary: Revoke all sessions except the current device
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: Other sessions revoked }
+        '401': { description: Not authenticated }
+  /api/auth/forgot-password:
+    post:
+      summary: Request password recovery (response must not reveal account existence)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202': { description: Generic response; recovery email sent if account exists }
+        '429': { description: Rate limited }
+  /api/auth/reset-password:
+    post:
+      summary: Consume a single-use reset token and revoke all active sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        '200': { description: Password changed; all sessions revoked }
+        '400': { description: Invalid or expired token }
+        '429': { description: Rate limited }
+  /api/me:
+    get:
+      summary: Return current authenticated account
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: Account profile }
+        '401': { description: Missing, expired or revoked session }
+  /api/me/sessions:
+    get:
+      summary: List current user's active device sessions (never return token hashes)
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: Active device sessions }
+        '401': { description: Not authenticated }
+  /api/me/sessions/{sessionId}:
+    delete:
+      summary: Revoke one of the current user's sessions
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Session revoked }
+        '404': { description: Session not found for this user }
+security:
+  - sessionCookie: []
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: iefekt_session
