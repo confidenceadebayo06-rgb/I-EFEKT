@@ -119,6 +119,7 @@ async function main() {
     process.stdout.write(JSON.stringify({ remotePath, sha256: digest, bytes }) + '\n');
     await fs.rm(finalPath, { force: true });
   } finally {
+    if (!process.argv.includes('--local-only')) await fs.rm(finalPath, { force: true });
     await fs.rm(dir, { recursive: true, force: true });
     await prisma.$disconnect();
   }
