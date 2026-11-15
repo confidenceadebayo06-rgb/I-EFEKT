@@ -41,3 +41,19 @@ test('health endpoint reports a structured service response', async () => {
   assert.equal(typeof payload.ok, 'boolean');
   assert.equal(payload.service, 'iefekt-api');
 });
+
+test('session management endpoints require authentication', async () => {
+  const [list, revokeOthers] = await Promise.all([
+    request('/api/me/sessions'),
+    request('/api/me/sessions/logout-others', { method: 'POST' })
+  ]);
+  assert.equal(list.status, 401);
+  assert.equal(revokeOthers.status, 401);
+});
+
+test('logout without a session is safe and idempotent', async () => {
+  const response = await request('/api/auth/logout', { method: 'POST' });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.ok, true);
+});
