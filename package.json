@@ -13,7 +13,9 @@
     "db:studio": "prisma studio",
     "engine:build": "node scripts/build-engine.mjs",
     "engine:benchmark": "node scripts/benchmark-engine.mjs",
-    "test:security": "node --test tests/security/*.test.mjs"
+    "test:security": "node --test tests/security/*.test.mjs",
+    "backup:mysql": "node scripts/backup-mysql.mjs",
+    "test:backup:restore": "node scripts/restore-backup-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
