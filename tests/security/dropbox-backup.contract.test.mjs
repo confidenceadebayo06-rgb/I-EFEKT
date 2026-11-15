@@ -63,7 +63,7 @@ test('encrypted Dropbox credential model and SQL migration agree', () => {
 test('live Dropbox round-trip test is opt-in and restricted to disposable databases', () => {
   assert.match(liveSmoke, /IEFEKT_ENABLE_LIVE_DROPBOX_TEST !== '1'/);
   assert.match(liveSmoke, /NODE_ENV === 'production'/);
-  assert.match(liveSmoke, /ci\\|test\\|testing\\|staging/);
+  assert.match(liveSmoke, /ci\|test\|testing\|staging/);
   assert.match(liveSmoke, /content\.dropboxapi\.com\/2\/files\/download/);
   assert.match(liveSmoke, /files\/delete_v2/);
   assert.match(liveSmoke, /SHA-256/);
