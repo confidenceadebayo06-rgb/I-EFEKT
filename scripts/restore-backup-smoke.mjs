@@ -17,9 +17,9 @@ function key() {
 function dbConfig() {
   const url = new URL(process.env.DATABASE_URL || '');
   if (url.protocol !== 'mysql:') throw new Error('DATABASE_URL must use mysql://');
-  const database = decodeURIComponent(url.pathname.replace(/^\\//, ''));
+  const database = decodeURIComponent(url.pathname.slice(1));
   if (!SAFE_DATABASE_NAME.test(database)) {
-    throw new Error('Restore smoke test is allowed only for a database named iefekt_ci, iefekt_test, iefekt_testing, or iefekt_staging (optionally with a suffix).');
+    throw new Error('Restore smoke test is allowed only for iefekt_ci, iefekt_test, iefekt_testing, or iefekt_staging databases (optionally with a suffix).');
   }
   if (process.env.NODE_ENV === 'production') throw new Error('Restore smoke test is disabled when NODE_ENV=production.');
   if (process.env.IEFEKT_ALLOW_RESTORE_SMOKE !== '1') {
@@ -33,11 +33,11 @@ function dbConfig() {
   };
 }
 
-function runMaria(args, env, options = {}) {
+function runMaria(args, env) {
   return new Promise((resolve, reject) => {
-    const child = spawn('mariadb', args, { env, stdio: options.stdio || ['ignore', 'ignore', 'pipe'] });
+    const child = spawn('mariadb', args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
-    if (child.stderr) child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
+    child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
     child.once('error', reject);
     child.once('close', code => resolve({ code, stderr }));
   });
@@ -69,27 +69,23 @@ async function main() {
   const target = 'iefekt_restore_smoke_' + Date.now();
   const env = { ...process.env, MYSQL_PWD: db.password };
   const common = ['--host', db.host, '--port', db.port, '--user', db.user];
-  const created = await runMaria([...common, '--execute', 'CREATE DATABASE `' + target + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'], env);
+  const created = await runMaria([...common, '--execute', 'CREATE DATABASE ' + target + ' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'], env);
   if (created.code !== 0) throw new Error('Could not create isolated restore database: ' + created.stderr);
 
   let restoreError;
+  let restoreProcess;
   try {
-    const restore = spawn('mariadb', [...common, target], { env, stdio: ['pipe', 'ignore', 'pipe'] });
+    restoreProcess = spawn('mariadb', [...common, target], { env, stdio: ['pipe', 'ignore', 'pipe'] });
     let restoreErr = '';
-    restore.stderr.on('data', chunk => { restoreErr = (restoreErr + chunk).slice(-4000); });
-    try {
-      await pipe(createReadStream(file, { start: newline + 1 }), decipher, createGunzip(), restore.stdin);
-    } catch (error) {
-      restore.stdin.destroy();
-      throw error;
-    }
+    restoreProcess.stderr.on('data', chunk => { restoreErr = (restoreErr + chunk).slice(-4000); });
+    await pipe(createReadStream(file, { start: newline + 1 }), decipher, createGunzip(), restoreProcess.stdin);
     const imported = await new Promise((resolve, reject) => {
-      restore.once('error', reject);
-      restore.once('close', resolve);
+      restoreProcess.once('error', reject);
+      restoreProcess.once('close', resolve);
     });
     if (imported !== 0) throw new Error('Restore import failed: ' + restoreErr);
 
-    const verifySql = 'SELECT COUNT(*) FROM `' + target + '`.BackupSmokeCheck WHERE id=1 AND marker=\\'restore-ok\\'';
+    const verifySql = "SELECT COUNT(*) FROM " + target + ".BackupSmokeCheck WHERE id=1 AND marker='restore-ok'";
     const verify = spawn('mariadb', [...common, '--batch', '--skip-column-names', '--execute', verifySql], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
     let verifyErr = '';
@@ -101,23 +97,27 @@ async function main() {
       verify.once('close', resolve);
     });
     if (verifyCode !== 0 || output.trim() !== '1') throw new Error('Restored data verification failed: ' + verifyErr);
-    process.stdout.write('Encrypted backup decrypted, imported, and verified in isolated database ' + target + '.\\n');
+    process.stdout.write('Encrypted backup decrypted, imported, and verified in isolated database ' + target + '.\n');
   } catch (error) {
     restoreError = error;
+    if (restoreProcess && restoreProcess.exitCode === null) {
+      restoreProcess.stdin.destroy();
+      await new Promise(resolve => restoreProcess.once('close', resolve));
+    }
   }
 
   // Never silently ignore failed cleanup: a leftover restore database is a safety failure.
-  const dropped = await runMaria([...common, '--execute', 'DROP DATABASE `' + target + '`'], env);
+  const dropped = await runMaria([...common, '--execute', 'DROP DATABASE ' + target], env);
   if (dropped.code !== 0) {
     const cleanupMessage = 'CRITICAL: could not remove temporary restore database ' + target + ': ' + dropped.stderr;
     if (restoreError) throw new Error((restoreError instanceof Error ? restoreError.message : String(restoreError)) + '; ' + cleanupMessage);
     throw new Error(cleanupMessage);
   }
   if (restoreError) throw restoreError;
-  process.stdout.write('Temporary restore database cleanup verified.\\n');
+  process.stdout.write('Temporary restore database cleanup verified.\n');
 }
 
 main().catch(error => {
-  process.stderr.write('Restore smoke test failed: ' + (error instanceof Error ? error.message : 'unknown error') + '\\n');
+  process.stderr.write('Restore smoke test failed: ' + (error instanceof Error ? error.message : 'unknown error') + '\n');
   process.exitCode = 1;
 });
