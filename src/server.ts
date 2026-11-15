@@ -225,12 +225,13 @@ app.post('/api/auth/reset-password', async (req, reply) => {
 });
 
 app.get('/api/me/sessions', { preHandler: auth }, async (req) => ({
-  sessions: await prisma.deviceSession.findMany({ where: { userId: req.user!.id, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { lastSeenAt: 'desc' }, select: { id: true, deviceName: true, userAgent: true, createdAt: true, lastSeenAt: true, expiresAt: true } })
+  sessions: await prisma.deviceSession.findMany({ where: { userId: req.user!.id, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { lastSeenAt: 'desc' }, select: { id: true, deviceName: true, userAgent: true, createdAt: true, lastSeenAt: true, expiresAt: true } }).then(sessions => sessions.map(session => ({ ...session, isCurrent: session.id === req.user!.sessionId })))
 }));
 app.delete('/api/me/sessions/:sessionId', { preHandler: auth }, async (req, reply) => {
   const sessionId = String((req.params as any).sessionId);
   const result = await prisma.deviceSession.updateMany({ where: { id: sessionId, userId: req.user!.id, revokedAt: null }, data: { revokedAt: new Date() } });
   if (!result.count) return reply.code(404).send({ error: 'Session not found.' });
+  if (sessionId === req.user!.sessionId) reply.clearCookie(cookieName, { path: '/' });
   await audit(req.user!.id, 'session.revoked', req, sessionId);
   for (const socket of io.sockets.sockets.values()) if (socket.data.sessionId === sessionId) socket.disconnect(true);
   return reply.code(204).send();
