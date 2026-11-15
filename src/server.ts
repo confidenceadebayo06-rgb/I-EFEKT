@@ -22,7 +22,8 @@ const s3 = new S3Client({ region: process.env.S3_REGION || 'us-east-1', endpoint
 const mediaBucket = process.env.S3_BUCKET || 'iefekt-media';
 const app = Fastify({ logger: true, bodyLimit: 12 * 1024 * 1024 });
 const port = Number(process.env.PORT || 3000);
-const secret = process.env.JWT_SECRET || 'development-only-change-me-please-32chars';
+const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'development-only-change-me-please-32chars');
+if (process.env.NODE_ENV === 'production' && secret.length < 32) throw new Error('JWT_SECRET must be configured with at least 32 characters in production.');
 const origin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const cookieName = 'iefekt_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,47 @@ const cookieOptions = { path: '/', httpOnly: true, sameSite: 'lax' as const, sec
 
 await app.register(cookie);
 await app.register(cors, { origin, credentials: true });
+
+// Security headers are set centrally so API and static responses receive the same baseline protections.
+app.addHook('onSend', async (_req, reply, payload) => {
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  reply.header('Cross-Origin-Opener-Policy', 'same-origin');
+  return payload;
+});
+
+// Per-process limits protect sensitive authentication endpoints from basic abuse.
+// For multi-replica deployments, replace this with a shared Redis-backed limiter.
+const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
+const authRateRules: Array<{ matches: (path: string) => boolean; limit: number; windowMs: number }> = [
+  { matches: p => p === '/api/auth/login', limit: 10, windowMs: 15 * 60 * 1000 },
+  { matches: p => p === '/api/auth/register', limit: 5, windowMs: 60 * 60 * 1000 },
+  { matches: p => p === '/api/auth/forgot-password', limit: 5, windowMs: 60 * 60 * 1000 },
+  { matches: p => p === '/api/auth/reset-password', limit: 10, windowMs: 60 * 60 * 1000 },
+  { matches: p => p === '/api/auth/verify', limit: 20, windowMs: 60 * 60 * 1000 }
+];
+app.addHook('onRequest', async (req, reply) => {
+  const path = req.url.split('?')[0] || req.url;
+  const rule = authRateRules.find(candidate => candidate.matches(path));
+  if (!rule) return;
+  const now = Date.now();
+  const key = `${req.ip}:${path}`;
+  let bucket = authRateBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) { bucket = { count: 0, resetAt: now + rule.windowMs }; authRateBuckets.set(key, bucket); }
+  bucket.count += 1;
+  reply.header('RateLimit-Limit', rule.limit);
+  reply.header('RateLimit-Remaining', Math.max(0, rule.limit - bucket.count));
+  reply.header('RateLimit-Reset', Math.ceil(bucket.resetAt / 1000));
+  if (bucket.count > rule.limit) {
+    reply.header('Retry-After', Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)));
+    return reply.code(429).send({ error: 'Too many attempts. Please try again later.' });
+  }
+  if (authRateBuckets.size > 10000) {
+    for (const [bucketKey, value] of authRateBuckets) if (value.resetAt <= now) authRateBuckets.delete(bucketKey);
+  }
+});
 await app.register(fastifyStatic, { root: publicDir, prefix: '/' });
 app.decorateRequest('user', null);
 app.addHook('preHandler', async (req) => {
@@ -84,8 +126,12 @@ app.get('/api/auth/verify', async (req, reply) => {
   const token = String((req.query as any).token || ''); if (!token) return reply.code(400).send({ error: 'Missing verification token.' });
   const record = await prisma.verificationToken.findUnique({ where: { tokenHash: hashToken(token) } });
   if (!record || record.expiresAt < new Date()) return reply.code(400).send({ error: 'Verification link is invalid or expired.' });
-  const user = await prisma.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: new Date() } });
-  await prisma.verificationToken.delete({ where: { id: record.id } });
+  const user = await prisma.$transaction(async tx => {
+    const consumed = await tx.verificationToken.deleteMany({ where: { id: record.id, expiresAt: { gt: new Date() } } });
+    if (!consumed.count) return null;
+    return tx.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: new Date() } });
+  });
+  if (!user) return reply.code(400).send({ error: 'Verification link is invalid or expired.' });
   reply.setCookie(cookieName, makeToken({ id: user.id, email: user.email, handle: user.handle }), cookieOptions);
   return reply.redirect('/?verified=1');
 });
@@ -102,13 +148,22 @@ app.post('/api/auth/logout', async (_req, reply) => { reply.clearCookie(cookieNa
 app.post('/api/auth/forgot-password', async (req, reply) => {
   const email = String((req.body as any)?.email || '').toLowerCase();
   const user = await prisma.user.findUnique({ where: { email } });
-  if (user) { const token = randomBytes(32).toString('hex'); await prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 60 * 60 * 1000) } }); const url = `${origin}/api/auth/reset-password?token=${token}`; try { await sendMail(email, 'Reset your I-EFEKT password', `<p><a href="${url}">Reset password</a></p><p>This link expires in one hour.</p>`); } catch (e) { req.log.error(e); } }
+  if (user) { await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } }); const token = randomBytes(32).toString('hex'); await prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 60 * 60 * 1000) } }); const url = `${origin}/api/auth/reset-password?token=${token}`; try { await sendMail(email, 'Reset your I-EFEKT password', `<p><a href="${url}">Reset password</a></p><p>This link expires in one hour.</p>`); } catch (e) { req.log.error(e); } }
   return { message: 'If that email is registered, a password reset link has been sent.' };
 });
 app.post('/api/auth/reset-password', async (req, reply) => {
   const p = z.object({ token: z.string(), password: z.string().min(12).max(128) }).safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Provide a valid token and a password of at least 12 characters.' });
   const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hashToken(p.data.token) } }); if (!record || record.expiresAt < new Date()) return reply.code(400).send({ error: 'Reset link is invalid or expired.' });
-  await prisma.user.update({ where: { id: record.userId }, data: { passwordHash: await bcrypt.hash(p.data.password, 12) } }); await prisma.passwordResetToken.delete({ where: { id: record.id } }); return { ok: true, message: 'Password updated. You can now sign in.' };
+  const passwordHash = await bcrypt.hash(p.data.password, 12);
+  const changed = await prisma.$transaction(async tx => {
+    const consumed = await tx.passwordResetToken.deleteMany({ where: { id: record.id, expiresAt: { gt: new Date() } } });
+    if (!consumed.count) return false;
+    await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
+    await tx.passwordResetToken.deleteMany({ where: { userId: record.userId } });
+    return true;
+  });
+  if (!changed) return reply.code(400).send({ error: 'Reset link is invalid or expired.' });
+  return { ok: true, message: 'Password updated. You can now sign in.' };
 });
 
 app.get('/api/me', { preHandler: auth }, async (req) => ({ user: await prisma.user.findUnique({ where: { id: req.user!.id }, select: { id: true, email: true, handle: true, displayName: true, bio: true, avatarUrl: true, emailVerifiedAt: true, createdAt: true } }) }));
