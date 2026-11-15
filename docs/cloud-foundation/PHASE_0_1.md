@@ -69,6 +69,15 @@ The companion `AUTH_API.yaml` describes the intended v1 contract. Keep the curre
 7. Register the existing service worker only over HTTPS (localhost is permitted for development). Do not cache authenticated API responses, account exports, private messages or signed media URLs.
 8. Add an explicit, user-confirmed import path for existing compatible backups after the account is authenticated.
 
+## Implementation notes and remaining validation
+
+- The server-side session implementation is committed on this feature branch. New logins and email verification create opaque random session cookies; the database stores only SHA-256 token hashes.
+- Existing unexpired JWT cookies are exchanged once for opaque sessions by the HTTP middleware, then the cookie is replaced. Remove this compatibility path after the transition window and confirm all active clients have migrated.
+- Session activity writes are throttled to once per five minutes per active session. IP metadata uses keyed HMAC hashing when `SESSION_IP_HASH_KEY` is configured.
+- Socket.IO authenticates using the same session table and checks revocation/expiry every 60 seconds. This bounds stale socket access after revocation; direct revocation also disconnects sockets on the current API process.
+- Multi-instance socket disconnection requires a shared Socket.IO adapter or equivalent cross-instance revocation broadcast before horizontal scaling. Until then, periodic session checks remain the cross-instance safety net.
+- CI was triggered for the feature branch; inspect the latest pull-request check after completion. No passing build or staging authentication test is claimed here.
+
 ## Rollout and rollback
 
 - Deploy schema additions before code that requires them.
