@@ -113,6 +113,32 @@ paths:
         '200': { description: Password changed; all sessions revoked }
         '400': { description: Invalid or expired token }
         '429': { description: Rate limited }
+  /api/me/sessions:
+    get:
+      summary: List active sessions for the authenticated account
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: Active sessions; token hashes are never returned }
+        '401': { description: Not authenticated }
+  /api/me/sessions/{sessionId}:
+    delete:
+      summary: Revoke one session belonging to the current user
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Session revoked }
+        '404': { description: Session not found }
+  /api/me/sessions/logout-others:
+    post:
+      summary: Revoke all other sessions while preserving the current device
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: Number of sessions revoked }
+        '401': { description: Not authenticated }
   /api/me:
     get:
       summary: Return current authenticated account
