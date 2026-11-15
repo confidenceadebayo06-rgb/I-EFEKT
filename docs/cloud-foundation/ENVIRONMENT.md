@@ -44,7 +44,6 @@ Configure these only after the OAuth callback code has been reviewed and deploye
 - `DROPBOX_TOKEN_ENCRYPTION_KEY`: base64 encoding of 32 cryptographically random bytes, used for AES-256-GCM encryption of the offline refresh token before it is stored in MySQL.
 - `DROPBOX_BACKUP_ADMIN_USER_ID`: exact I-EFEKT user ID permitted to initiate the system-wide Dropbox connection; do not leave unset in production.
 - `BACKUP_ENCRYPTION_KEY`: a separate base64-encoded 32-byte key for encrypting database dumps. Keep it separate from the OAuth token key and store it only in Railway secrets.
-- `DROPBOX_OAUTH_SCOPES` (optional): space-separated scopes. Default is `files.content.write files.content.read files.metadata.read account_info.read`.
 
 The OAuth flow requests offline access and validates a one-time, ten-minute, HttpOnly state cookie. The callback stores only an AES-256-GCM encrypted refresh token in the `DropboxCredential` singleton row. It never returns or logs the token. Keep Dropbox app permissions limited to the four scopes above; the backup uploader must additionally constrain all paths to `/I-EFEKT/Production-Backups`.
 
