@@ -98,7 +98,7 @@ async function main() {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'iefekt-backup-'));
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const cipherPath = path.join(dir, 'payload.enc');
-  const outputDir = process.env.BACKUP_OUTPUT_DIR || dir;
+  const outputDir = process.env.BACKUP_OUTPUT_DIR || path.resolve('tmp-backups');
   await fs.mkdir(outputDir, { recursive: true });
   const finalPath = path.join(outputDir, 'iefekt-mysql-' + timestamp + '.sql.gz.enc');
   try {
