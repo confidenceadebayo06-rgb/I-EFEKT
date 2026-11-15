@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
+import { startBackupScheduler } from './backupScheduler.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -28,6 +29,7 @@ if (process.env.NODE_ENV === 'production' && secret.length < 32) throw new Error
 if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured in production.');
 const limiterRedis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
 await limiterRedis.connect();
+const stopBackupScheduler = startBackupScheduler(limiterRedis, app.log);
 const origin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const cookieName = 'iefekt_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -476,6 +478,6 @@ io.on('connection', socket => {
 app.setErrorHandler((error, _req, reply) => { app.log.error(error); reply.code(500).send({ error: process.env.NODE_ENV === 'production' ? 'An unexpected server error occurred.' : (error instanceof Error ? error.message : String(error)) }); });
 try { await app.listen({ port, host: '0.0.0.0' }); app.log.info(`I-EFEKT API listening on ${port}`); }
 catch (err) { app.log.error(err); process.exit(1); }
-const shutdown = async () => { rankingEngine.close(); await limiterRedis.quit().catch(() => undefined); await prisma.$disconnect(); await app.close(); process.exit(0); };
+const shutdown = async () => { stopBackupScheduler(); rankingEngine.close(); await limiterRedis.quit().catch(() => undefined); await prisma.$disconnect(); await app.close(); process.exit(0); };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
