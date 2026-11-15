@@ -6,6 +6,7 @@ import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
@@ -24,6 +25,9 @@ const app = Fastify({ logger: true, bodyLimit: 12 * 1024 * 1024 });
 const port = Number(process.env.PORT || 3000);
 const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'development-only-change-me-please-32chars');
 if (process.env.NODE_ENV === 'production' && secret.length < 32) throw new Error('JWT_SECRET must be configured with at least 32 characters in production.');
+if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured in production.');
+const limiterRedis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
+await limiterRedis.connect();
 const origin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const cookieName = 'iefekt_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -53,9 +57,7 @@ app.addHook('onSend', async (_req, reply, payload) => {
   return payload;
 });
 
-// Per-process limits protect sensitive authentication endpoints from basic abuse.
-// For multi-replica deployments, replace this with a shared Redis-backed limiter.
-const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
+// Shared Redis fixed-window limits apply consistently across every app replica.
 const authRateRules: Array<{ matches: (path: string) => boolean; limit: number; windowMs: number }> = [
   { matches: p => p === '/api/auth/login', limit: 10, windowMs: 15 * 60 * 1000 },
   { matches: p => p === '/api/auth/register', limit: 5, windowMs: 60 * 60 * 1000 },
@@ -63,24 +65,32 @@ const authRateRules: Array<{ matches: (path: string) => boolean; limit: number; 
   { matches: p => p === '/api/auth/reset-password', limit: 10, windowMs: 60 * 60 * 1000 },
   { matches: p => p === '/api/auth/verify', limit: 20, windowMs: 60 * 60 * 1000 }
 ];
+const consumeRateLimit = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
+local ttl = redis.call('PTTL', KEYS[1])
+return { count, ttl }
+`;
 app.addHook('onRequest', async (req, reply) => {
-  const path = req.url.split('?')[0] || req.url;
-  const rule = authRateRules.find(candidate => candidate.matches(path));
+  const requestPath = req.url.split('?')[0] || req.url;
+  const rule = authRateRules.find(candidate => candidate.matches(requestPath));
   if (!rule) return;
-  const now = Date.now();
-  const key = `${req.ip}:${path}`;
-  let bucket = authRateBuckets.get(key);
-  if (!bucket || bucket.resetAt <= now) { bucket = { count: 0, resetAt: now + rule.windowMs }; authRateBuckets.set(key, bucket); }
-  bucket.count += 1;
-  reply.header('RateLimit-Limit', rule.limit);
-  reply.header('RateLimit-Remaining', Math.max(0, rule.limit - bucket.count));
-  reply.header('RateLimit-Reset', Math.ceil(bucket.resetAt / 1000));
-  if (bucket.count > rule.limit) {
-    reply.header('Retry-After', Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)));
-    return reply.code(429).send({ error: 'Too many attempts. Please try again later.' });
-  }
-  if (authRateBuckets.size > 10000) {
-    for (const [bucketKey, value] of authRateBuckets) if (value.resetAt <= now) authRateBuckets.delete(bucketKey);
+  const keyHash = createHash('sha256').update(`${req.ip}:${requestPath}`).digest('hex');
+  try {
+    const result = await limiterRedis.eval(consumeRateLimit, 1, `iefekt:auth-limit:${keyHash}`, String(rule.windowMs)) as [number, number];
+    const count = Number(result[0]);
+    const ttlMs = Math.max(0, Number(result[1]));
+    const resetAt = Math.ceil((Date.now() + ttlMs) / 1000);
+    reply.header('RateLimit-Limit', rule.limit);
+    reply.header('RateLimit-Remaining', Math.max(0, rule.limit - count));
+    reply.header('RateLimit-Reset', resetAt);
+    if (count > rule.limit) {
+      reply.header('Retry-After', Math.max(1, Math.ceil(ttlMs / 1000)));
+      return reply.code(429).send({ error: 'Too many attempts. Please try again later.' });
+    }
+  } catch (error) {
+    req.log.error({ error }, 'Redis rate limiter unavailable');
+    return reply.code(503).send({ error: 'Authentication protection is temporarily unavailable. Please try again shortly.' });
   }
 });
 await app.register(fastifyStatic, { root: publicDir, prefix: '/' });
@@ -303,4 +313,6 @@ io.on('connection', socket => { const user = socket.data.user as SessionUser; so
 app.setErrorHandler((error, _req, reply) => { app.log.error(error); reply.code(500).send({ error: process.env.NODE_ENV === 'production' ? 'An unexpected server error occurred.' : (error instanceof Error ? error.message : String(error)) }); });
 try { await app.listen({ port, host: '0.0.0.0' }); app.log.info(`I-EFEKT API listening on ${port}`); }
 catch (err) { app.log.error(err); process.exit(1); }
-process.on('SIGINT', async () => { rankingEngine.close(); await prisma.$disconnect(); await app.close(); process.exit(0); });
+const shutdown = async () => { rankingEngine.close(); await limiterRedis.quit().catch(() => undefined); await prisma.$disconnect(); await app.close(); process.exit(0); };
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
