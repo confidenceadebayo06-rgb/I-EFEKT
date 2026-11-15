@@ -63,7 +63,7 @@ jobs:
           mariadb --host 127.0.0.1 --port 3306 --user root --password=ci-root-password iefekt_ci --execute "CREATE TABLE BackupSmokeCheck (id INT PRIMARY KEY, marker VARCHAR(40) NOT NULL); INSERT INTO BackupSmokeCheck VALUES (1, 'restore-ok');"
           BACKUP_OUTPUT_DIR="$RUNNER_TEMP/iefekt-backups" node scripts/backup-mysql.mjs --local-only > "$RUNNER_TEMP/backup-result.json"
           BACKUP_FILE="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).file)" "$RUNNER_TEMP/backup-result.json")"
-          node scripts/restore-backup-smoke.mjs "$BACKUP_FILE"
+          IEFEKT_ALLOW_RESTORE_SMOKE=1 node scripts/restore-backup-smoke.mjs "$BACKUP_FILE"
       - name: Start API for HTTP security contract tests
         shell: bash
         run: |
