@@ -182,7 +182,7 @@ app.get('/api/backup/dropbox/connect', { preHandler: auth }, async (req, reply) 
   return reply.redirect(authorize.toString());
 });
 
-app.get('/api/backup/dropbox/callback', async (req, reply) => {
+app.get('/api/backup/dropbox/callback', { logLevel: 'silent' }, async (req, reply) => {
   const query = req.query as { code?: string; state?: string; error?: string };
   const expectedState = req.cookies[dropboxStateCookie];
   reply.clearCookie(dropboxStateCookie, { path: '/api/backup/dropbox/callback' });
