@@ -6,6 +6,7 @@ export function startBackupScheduler(redis: Redis, log: { info: (obj: unknown, m
   const check = async () => {
     const now = new Date();
     if (now.getUTCHours() < 3) return;
+    if (!process.env.BACKUP_ENCRYPTION_KEY || !process.env.DROPBOX_APP_KEY || !process.env.DROPBOX_APP_SECRET || !process.env.DROPBOX_TOKEN_ENCRYPTION_KEY) return;
     const day = now.toISOString().slice(0, 10);
     const lockKey = 'iefekt:backup:daily:' + day;
     try {
