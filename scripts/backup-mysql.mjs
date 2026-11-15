@@ -106,6 +106,7 @@ async function main() {
     const header = Buffer.from(JSON.stringify({ format: 'IEFEKT-ENC-GZIP-V1', algorithm: 'aes-256-gcm', iv: iv.toString('base64'), authTag: authTag.toString('base64'), createdAt: new Date().toISOString() }) + '\n');
     await fs.writeFile(finalPath, header);
     const hash = createHash('sha256');
+    hash.update(header);
     let bytes = header.length;
     const meter = new Transform({ transform(chunk, _enc, cb) { hash.update(chunk); bytes += chunk.length; cb(null, chunk); } });
     await pipe(createReadStream(cipherPath), meter, createWriteStream(finalPath, { flags: 'a' }));
