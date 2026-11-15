@@ -4,7 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
-    branches: [main]
+    branches: ['**']
 
 jobs:
   build-and-mysql:
@@ -26,6 +26,7 @@ jobs:
       DATABASE_URL: mysql://root:ci-root-password@127.0.0.1:3306/iefekt_ci
       JWT_SECRET: ci-only-secret-not-for-production
       NODE_ENV: test
+      BACKUP_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,8 +40,18 @@ jobs:
         run: npx prisma generate
       - name: Apply schema to CI MySQL
         run: npx prisma db push
+      - name: Install MariaDB client tools for backup/restore smoke test
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
       - name: Build TypeScript and C++ ranking engine
         run: npm run build
+      - name: Verify encrypted MySQL backup and isolated restore
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/iefekt-backups"
+          mariadb --host 127.0.0.1 --port 3306 --user root --password=ci-root-password iefekt_ci --execute "CREATE TABLE BackupSmokeCheck (id INT PRIMARY KEY, marker VARCHAR(40) NOT NULL); INSERT INTO BackupSmokeCheck VALUES (1, 'restore-ok');"
+          BACKUP_OUTPUT_DIR="$RUNNER_TEMP/iefekt-backups" node scripts/backup-mysql.mjs --local-only > "$RUNNER_TEMP/backup-result.json"
+          BACKUP_FILE="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).file)" "$RUNNER_TEMP/backup-result.json")"
+          node scripts/restore-backup-smoke.mjs "$BACKUP_FILE"
       - name: Validate existing PWA inline JavaScript
         run: node tests/security/check-public-inline-scripts.mjs
       - name: Confirm Phase 1 session models are generated
