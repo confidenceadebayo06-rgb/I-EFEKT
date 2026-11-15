@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream, promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -39,16 +39,12 @@ function runDump(outputPath) {
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', chunk => { stderr += chunk.slice(0, 2000); });
     const gzip = createGzip({ level: 6 });
-    const cipher = (awaitCipher => awaitCipher)(null);
-    void cipher;
     const key = keyFromEnv('BACKUP_ENCRYPTION_KEY');
     const iv = randomBytes(12);
-    const { createCipheriv } = await import('node:crypto');
     const encryptor = createCipheriv('aes-256-gcm', key, iv);
-    pipe(child.stdout, gzip, encryptor, createWriteStream(outputPath)).then(() => {
-      child.once('close', code => code === 0 ? resolve({ iv, authTag: encryptor.getAuthTag() }) : reject(new Error('Database dump failed: ' + stderr)));
-    }).catch(reject);
-    child.once('error', reject);
+    const exited = new Promise((res, rej) => { child.once('error', rej); child.once('close', code => code === 0 ? res() : rej(new Error('Database dump failed: ' + stderr))); });
+    Promise.all([pipe(child.stdout, gzip, encryptor, createWriteStream(outputPath)), exited])
+      .then(() => resolve({ iv, authTag: encryptor.getAuthTag() })).catch(reject);
   });
 }
 async function getDropboxAccessToken() {
@@ -102,7 +98,9 @@ async function main() {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'iefekt-backup-'));
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const cipherPath = path.join(dir, 'payload.enc');
-  const finalPath = path.join(dir, 'iefekt-mysql-' + timestamp + '.sql.gz.enc');
+  const outputDir = process.env.BACKUP_OUTPUT_DIR || dir;
+  await fs.mkdir(outputDir, { recursive: true });
+  const finalPath = path.join(outputDir, 'iefekt-mysql-' + timestamp + '.sql.gz.enc');
   try {
     const { iv, authTag } = await runDump(cipherPath);
     const header = Buffer.from(JSON.stringify({ format: 'IEFEKT-ENC-GZIP-V1', algorithm: 'aes-256-gcm', iv: iv.toString('base64'), authTag: authTag.toString('base64'), createdAt: new Date().toISOString() }) + '\n');
