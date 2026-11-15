@@ -90,7 +90,8 @@ async function uploadFile(filePath, fileName) {
       offset += part.length;
     }
     const last = await readChunk(offset, stat.size - offset);
-    await dropboxRequest('upload_session/finish', token, { cursor: { session_id: sessionId, offset }, commit: { path: remotePath, mode: 'add', autorename: false, mute: true, strict_conflict: true } }, last);
+    const metadata = await dropboxRequest('upload_session/finish', token, { cursor: { session_id: sessionId, offset }, commit: { path: remotePath, mode: 'add', autorename: false, mute: true, strict_conflict: true } }, last);
+    if (metadata.path_display !== remotePath || Number(metadata.size) !== stat.size) throw new Error('Dropbox upload metadata did not match the encrypted backup.');
     return remotePath;
   } finally { await fd.close(); }
 }
