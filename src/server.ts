@@ -51,7 +51,7 @@ const createSession = async (user: { id: string; email: string; handle: string }
   return row;
 };
 const audit = async (userId: string | null, action: string, req: FastifyRequest, targetId?: string) => {
-  try { await prisma.auditLog.create({ data: { userId, action, targetId: targetId || null, ipHash: process.env.SESSION_IP_HASH_KEY ? createHash('sha256').update(process.env.SESSION_IP_HASH_KEY + req.ip).digest('hex') : null } }); }
+  try { await prisma.auditLog.create({ data: { userId, action, targetId: targetId || null, ipHash: process.env.SESSION_IP_HASH_KEY ? createHmac('sha256', process.env.SESSION_IP_HASH_KEY).update(req.ip).digest('hex') : null } }); }
   catch (error) { req.log.error({ error }, 'Audit event write failed'); }
 };
 
