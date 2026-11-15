@@ -38,6 +38,8 @@ model User {
   mediaAssets MediaAsset[]
   verificationTokens VerificationToken[]
   resetTokens PasswordResetToken[]
+  sessions DeviceSession[]
+  auditLogs AuditLog[]
 }
 model VerificationToken {
   id String @id @default(cuid())
@@ -265,4 +267,37 @@ model MediaAsset {
   status String @default("pending")
   createdAt DateTime @default(now())
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Server-managed sessions. Store only a hash of the opaque session secret.
+model DeviceSession {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique @db.Char(64)
+  deviceName String?   @db.VarChar(120)
+  userAgent  String?   @db.VarChar(512)
+  ipHash     String?   @db.Char(64)
+  expiresAt  DateTime
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([expiresAt])
+}
+
+/// Security audit events. Never place passwords, cookies, tokens or message bodies in metadata.
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String   @db.VarChar(80)
+  targetId  String?  @db.VarChar(191)
+  ipHash    String?  @db.Char(64)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
 }

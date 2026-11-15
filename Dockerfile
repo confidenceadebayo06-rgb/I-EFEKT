@@ -22,4 +22,4 @@ COPY --from=build --chown=app:app /app/package.json ./package.json
 COPY --chown=app:app public ./public
 USER app
 EXPOSE 3000
-CMD ["sh","-c","npx prisma db push --skip-generate && node dist/server.js"]
+CMD ["node","dist/server.js"]

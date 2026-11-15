@@ -11,7 +11,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -38,11 +38,22 @@ const mailer = nodemailer.createTransport({
   ...(process.env.SMTP_USER ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' } } : {})
 });
 
-type SessionUser = { id: string; email: string; handle: string };
+type SessionUser = { id: string; email: string; handle: string; sessionId: string };
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
-const makeToken = (user: SessionUser) => jwt.sign(user, secret, { expiresIn: '7d' });
-const cookieOptions = { path: '/', httpOnly: true, sameSite: 'lax' as const, secure: process.env.COOKIE_SECURE === 'true', maxAge: 60 * 60 * 24 * 7 };
+const sessionTtlDays = Math.min(90, Math.max(1, Number(process.env.SESSION_TTL_DAYS || 30)));
+const sessionCookieOptions = { path: '/', httpOnly: true, sameSite: 'lax' as const, secure: process.env.COOKIE_SECURE === 'true', maxAge: 60 * 60 * 24 * sessionTtlDays };
+const createSession = async (user: { id: string; email: string; handle: string }, req: FastifyRequest, reply: any) => {
+  const raw = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + sessionTtlDays * 86400000);
+  const row = await prisma.deviceSession.create({ data: { userId: user.id, tokenHash: hashToken(raw), expiresAt, deviceName: String(req.headers['x-device-name'] || '').slice(0, 120) || null, userAgent: String(req.headers['user-agent'] || '').slice(0, 512) || null, ipHash: process.env.SESSION_IP_HASH_KEY ? createHmac('sha256', process.env.SESSION_IP_HASH_KEY).update(req.ip).digest('hex') : null } });
+  reply.setCookie(cookieName, raw, sessionCookieOptions);
+  return row;
+};
+const audit = async (userId: string | null, action: string, req: FastifyRequest, targetId?: string) => {
+  try { await prisma.auditLog.create({ data: { userId, action, targetId: targetId || null, ipHash: process.env.SESSION_IP_HASH_KEY ? createHmac('sha256', process.env.SESSION_IP_HASH_KEY).update(req.ip).digest('hex') : null } }); }
+  catch (error) { req.log.error({ error }, 'Audit event write failed'); }
+};
 
 await app.register(cookie);
 await app.register(cors, { origin, credentials: true });
@@ -95,11 +106,33 @@ app.addHook('onRequest', async (req, reply) => {
 });
 await app.register(fastifyStatic, { root: publicDir, prefix: '/' });
 app.decorateRequest('user', null);
-app.addHook('preHandler', async (req) => {
-  const token = req.cookies[cookieName];
-  if (token) { try { req.user = jwt.verify(token, secret) as SessionUser; } catch { req.user = null; } }
+app.addHook('preHandler', async (req, reply) => {
+  const raw = req.cookies[cookieName];
+  if (!raw) { req.user = null; return; }
+  const session = await prisma.deviceSession.findUnique({ where: { tokenHash: hashToken(raw) }, include: { user: { select: { id: true, email: true, handle: true, emailVerifiedAt: true } } } });
+  if (session) {
+    if (session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) { req.user = null; reply.clearCookie(cookieName, { path: '/' }); return; }
+    req.user = { id: session.user.id, email: session.user.email, handle: session.user.handle, sessionId: session.id };
+    if (Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) void prisma.deviceSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(error => req.log.warn({ error }, 'Session activity update failed'));
+    return;
+  }
+  // Exchange a still-valid legacy JWT once, then replace it with an opaque revocable session.
+  try {
+    const legacy = jwt.verify(raw, secret) as { id?: string };
+    if (!legacy.id) throw new Error('Invalid legacy session');
+    const user = await prisma.user.findUnique({ where: { id: legacy.id }, select: { id: true, email: true, handle: true, emailVerifiedAt: true } });
+    if (!user?.emailVerifiedAt) throw new Error('Legacy account is not verified');
+    const created = await createSession(user, req, reply);
+    req.user = { id: user.id, email: user.email, handle: user.handle, sessionId: created.id };
+    await audit(user.id, 'session.legacy_exchanged', req, created.id);
+  } catch { req.user = null; reply.clearCookie(cookieName, { path: '/' }); }
 });
 const auth = async (req: FastifyRequest, reply: any) => { if (!req.user) return reply.code(401).send({ error: 'Please sign in to continue.' }); };
+app.addHook('onRequest', async (req, reply) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return;
+  const requestOrigin = req.headers.origin;
+  if (req.cookies?.[cookieName] && requestOrigin && requestOrigin !== origin) return reply.code(403).send({ error: 'Request origin is not allowed.' });
+});
 const emitSync = async (userId: string, entityType: string, entityId: string) => {
   const row = await prisma.syncChange.create({ data: { userId, entityType, entityId } });
   io.to(`user:${userId}`).emit('sync:changed', { cursor: row.id.toString(), entity_type: entityType, entity_id: entityId });
@@ -142,7 +175,8 @@ app.get('/api/auth/verify', async (req, reply) => {
     return tx.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: new Date() } });
   });
   if (!user) return reply.code(400).send({ error: 'Verification link is invalid or expired.' });
-  reply.setCookie(cookieName, makeToken({ id: user.id, email: user.email, handle: user.handle }), cookieOptions);
+  const session = await createSession(user, req, reply);
+  await audit(user.id, 'auth.email_verified', req, session.id);
   return reply.redirect('/?verified=1');
 });
 app.post('/api/auth/login', async (req, reply) => {
@@ -151,10 +185,22 @@ app.post('/api/auth/login', async (req, reply) => {
   const user = await prisma.user.findUnique({ where: { email: p.data.email.toLowerCase() } });
   if (!user || !(await bcrypt.compare(p.data.password, user.passwordHash))) return reply.code(401).send({ error: 'Incorrect email or password.' });
   if (!user.emailVerifiedAt) return reply.code(403).send({ error: 'Please verify your email address before signing in.' });
-  reply.setCookie(cookieName, makeToken({ id: user.id, email: user.email, handle: user.handle }), cookieOptions);
+  const session = await createSession(user, req, reply);
+  await audit(user.id, 'auth.login', req, session.id);
   return { user: { id: user.id, email: user.email, handle: user.handle, display_name: user.displayName, bio: user.bio, avatar_url: user.avatarUrl } };
 });
-app.post('/api/auth/logout', async (_req, reply) => { reply.clearCookie(cookieName, { path: '/' }); return { ok: true }; });
+app.post('/api/auth/logout', async (req, reply) => {
+  const raw = req.cookies[cookieName];
+  if (raw) {
+    const session = await prisma.deviceSession.findUnique({ where: { tokenHash: hashToken(raw) } });
+    if (session && !session.revokedAt) {
+      await prisma.deviceSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
+      await audit(session.userId, 'auth.logout', req, session.id);
+      for (const socket of io.sockets.sockets.values()) if (socket.data.sessionId === session.id) socket.disconnect(true);
+    }
+  }
+  reply.clearCookie(cookieName, { path: '/' }); return { ok: true };
+});
 app.post('/api/auth/forgot-password', async (req, reply) => {
   const email = String((req.body as any)?.email || '').toLowerCase();
   const user = await prisma.user.findUnique({ where: { email } });
@@ -170,12 +216,32 @@ app.post('/api/auth/reset-password', async (req, reply) => {
     if (!consumed.count) return false;
     await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
     await tx.passwordResetToken.deleteMany({ where: { userId: record.userId } });
+    await tx.deviceSession.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    await tx.auditLog.create({ data: { userId: record.userId, action: 'auth.password_reset' } });
     return true;
   });
   if (!changed) return reply.code(400).send({ error: 'Reset link is invalid or expired.' });
   return { ok: true, message: 'Password updated. You can now sign in.' };
 });
 
+app.get('/api/me/sessions', { preHandler: auth }, async (req) => ({
+  sessions: await prisma.deviceSession.findMany({ where: { userId: req.user!.id, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { lastSeenAt: 'desc' }, select: { id: true, deviceName: true, userAgent: true, createdAt: true, lastSeenAt: true, expiresAt: true } }).then(sessions => sessions.map(session => ({ ...session, isCurrent: session.id === req.user!.sessionId })))
+}));
+app.delete('/api/me/sessions/:sessionId', { preHandler: auth }, async (req, reply) => {
+  const sessionId = String((req.params as any).sessionId);
+  const result = await prisma.deviceSession.updateMany({ where: { id: sessionId, userId: req.user!.id, revokedAt: null }, data: { revokedAt: new Date() } });
+  if (!result.count) return reply.code(404).send({ error: 'Session not found.' });
+  if (sessionId === req.user!.sessionId) reply.clearCookie(cookieName, { path: '/' });
+  await audit(req.user!.id, 'session.revoked', req, sessionId);
+  for (const socket of io.sockets.sockets.values()) if (socket.data.sessionId === sessionId) socket.disconnect(true);
+  return reply.code(204).send();
+});
+app.post('/api/me/sessions/logout-others', { preHandler: auth }, async (req) => {
+  const result = await prisma.deviceSession.updateMany({ where: { userId: req.user!.id, id: { not: req.user!.sessionId }, revokedAt: null }, data: { revokedAt: new Date() } });
+  await audit(req.user!.id, 'session.others_revoked', req);
+  for (const socket of io.sockets.sockets.values()) if (socket.data.userId === req.user!.id && socket.data.sessionId !== req.user!.sessionId) socket.disconnect(true);
+  return { revoked: result.count };
+});
 app.get('/api/me', { preHandler: auth }, async (req) => ({ user: await prisma.user.findUnique({ where: { id: req.user!.id }, select: { id: true, email: true, handle: true, displayName: true, bio: true, avatarUrl: true, emailVerifiedAt: true, createdAt: true } }) }));
 app.patch('/api/me/profile', { preHandler: auth }, async (req, reply) => {
   const p = z.object({ handle: z.string().regex(/^[a-zA-Z0-9_]{3,24}$/).optional(), displayName: z.string().max(60).optional(), bio: z.string().max(300).optional(), avatarAssetId: z.string().optional() }).safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Invalid profile update.' });
@@ -307,8 +373,27 @@ app.post('/api/media/:id/complete', { preHandler: auth }, async (req, reply) => 
 app.post('/api/live/sessions', { preHandler: auth }, async (_req, reply) => reply.code(501).send({ error: 'Live streaming requires an RTMP/WebRTC ingest and distribution provider. The API integration point is reserved.' }));
 
 const io = new SocketServer(app.server, { cors: { origin, credentials: true } });
-io.use((socket, next) => { try { const token = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.split('=').slice(1).join('='); if (!token) return next(new Error('unauthorized')); const user = jwt.verify(decodeURIComponent(token), secret) as SessionUser; socket.data.user = user; next(); } catch { next(new Error('unauthorized')); } });
-io.on('connection', socket => { const user = socket.data.user as SessionUser; socket.join(`user:${user.id}`); socket.on('conversation:join', async (conversationId: string) => { const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId: user.id } } }); if (member) socket.join(`conversation:${conversationId}`); }); socket.on('group:join', async (groupId: string) => { const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: user.id } } }); if (member) socket.join(`group:${groupId}`); }); });
+io.use(async (socket, next) => {
+  try {
+    const raw = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.split('=').slice(1).join('=');
+    if (!raw) return next(new Error('unauthorized'));
+    const session = await prisma.deviceSession.findUnique({ where: { tokenHash: hashToken(decodeURIComponent(raw)) }, include: { user: { select: { id: true, email: true, handle: true, emailVerifiedAt: true } } } });
+    if (!session || session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) return next(new Error('unauthorized'));
+    socket.data.user = { id: session.user.id, email: session.user.email, handle: session.user.handle };
+    socket.data.userId = session.user.id; socket.data.sessionId = session.id; next();
+  } catch { next(new Error('unauthorized')); }
+});
+io.on('connection', socket => {
+  const user = socket.data.user as { id: string; email: string; handle: string };
+  socket.join('user:' + user.id);
+  const sessionCheck = setInterval(async () => {
+    const active = await prisma.deviceSession.findFirst({ where: { id: socket.data.sessionId, revokedAt: null, expiresAt: { gt: new Date() } }, select: { id: true } }).catch(() => null);
+    if (!active) socket.disconnect(true);
+  }, 60000);
+  socket.on('disconnect', () => clearInterval(sessionCheck));
+  socket.on('conversation:join', async (conversationId: string) => { const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId: user.id } } }); if (member) socket.join('conversation:' + conversationId); });
+  socket.on('group:join', async (groupId: string) => { const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: user.id } } }); if (member) socket.join('group:' + groupId); });
+});
 
 app.setErrorHandler((error, _req, reply) => { app.log.error(error); reply.code(500).send({ error: process.env.NODE_ENV === 'production' ? 'An unexpected server error occurred.' : (error instanceof Error ? error.message : String(error)) }); });
 try { await app.listen({ port, host: '0.0.0.0' }); app.log.info(`I-EFEKT API listening on ${port}`); }
