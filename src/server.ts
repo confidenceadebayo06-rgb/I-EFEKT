@@ -208,7 +208,7 @@ app.get('/api/backup/dropbox/callback', { logLevel: 'silent' }, async (req, repl
     if (!response.ok) throw new Error('Dropbox token exchange failed.');
     const tokenData = await response.json() as { refresh_token?: string; account_id?: string; scope?: string };
     if (!tokenData.refresh_token) throw new Error('Dropbox did not return an offline refresh token.');
-    const grantedScopes = new Set(String(tokenData.scope || '').split(/\\s+/).filter(Boolean));
+    const grantedScopes = new Set(String(tokenData.scope || '').split(/\s+/).filter(Boolean));
     if (dropboxScopes.some(scope => !grantedScopes.has(scope))) throw new Error('Dropbox did not grant every required backup scope.');
     const encrypted = encryptDropboxToken(tokenData.refresh_token);
     await prisma.dropboxCredential.upsert({
