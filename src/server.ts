@@ -44,7 +44,7 @@ type SessionUser = { id: string; email: string; handle: string; sessionId: strin
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const dropboxStateCookie = 'iefekt_dropbox_oauth_state';
-const dropboxScopes = (process.env.DROPBOX_OAUTH_SCOPES || 'files.content.write files.content.read files.metadata.read account_info.read').split(/\s+/).filter(Boolean);
+const dropboxScopes = ['files.content.write', 'files.content.read', 'files.metadata.read', 'account_info.read'];
 const getDropboxEncryptionKey = () => {
   const encoded = process.env.DROPBOX_TOKEN_ENCRYPTION_KEY || '';
   const key = Buffer.from(encoded, 'base64');
