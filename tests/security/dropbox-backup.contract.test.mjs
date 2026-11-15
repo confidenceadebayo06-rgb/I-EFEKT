@@ -35,13 +35,20 @@ test('Dropbox uploader is encrypted and confined to the production backup folder
 
 test('daily scheduler uses a Redis atomic lock and waits for backup secrets', () => {
   assert.match(scheduler, /now\.getUTCHours\(\) < 3/);
-  assert.match(scheduler, /redis\.set\(lockKey, 'running', 'EX', 86400, 'NX'\)/);
+  assert.match(scheduler, /redis\.set\(lockKey, lockToken, 'EX', 7200, 'NX'\)/);
+  assert.match(scheduler, /iefekt:backup:daily:success:/);
+  assert.match(scheduler, /redis\.eval\(RELEASE_LOCK, 1, lockKey, lockToken\)/);
+  assert.match(scheduler, /child\.once\('close'/);
   assert.match(scheduler, /BACKUP_ENCRYPTION_KEY/);
 });
 
 test('restore smoke test uses a separate disposable database and removes it', () => {
   assert.match(restore, /iefekt_restore_smoke_/);
-  assert.match(restore, /DROP DATABASE IF EXISTS/);
+  assert.match(restore, /SAFE_DATABASE_NAME/);
+  assert.match(restore, /NODE_ENV === 'production'/);
+  assert.match(restore, /IEFEKT_ALLOW_RESTORE_SMOKE !== '1'/);
+  assert.match(restore, /DROP DATABASE /);
+  assert.match(restore, /could not remove temporary restore database/);
   assert.match(restore, /BackupSmokeCheck/);
 });
 
