@@ -15,7 +15,8 @@
     "engine:benchmark": "node scripts/benchmark-engine.mjs",
     "test:security": "node --test tests/security/*.test.mjs",
     "backup:mysql": "node scripts/backup-mysql.mjs",
-    "test:backup:restore": "node scripts/restore-backup-smoke.mjs"
+    "test:backup:restore": "node scripts/restore-backup-smoke.mjs",
+    "test:backup:dropbox-live": "node scripts/dropbox-live-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
