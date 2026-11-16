@@ -443,105 +443,21 @@
     <!-- =================================================================== -->
     <section id="view-live" class="view-section hidden h-full overflow-y-auto p-4 md:p-8 pb-24">
       <div class="max-w-5xl mx-auto space-y-6">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 class="font-display text-2xl md:text-3xl font-bold flex items-center gap-2.5">
-              <span class="w-3 h-3 rounded-full bg-efekt-pink animate-ping"></span> Live PK Battle Arena
-            </h2>
-            <p class="text-xs text-slate-400 mt-1">Real-time split-screen creator battles, particle gifts & live stage chat.</p>
-          </div>
-          <button onclick="showToast('Camera & AR Mic calibrated! Ready to Go Live 🎥')" class="px-5 py-2.5 rounded-xl neon-gradient text-black font-extrabold text-xs shadow-lg">
-            <i class="fa-solid fa-video mr-1.5"></i> Start Co-Stream
-          </button>
+        <div>
+          <h2 class="font-display text-2xl md:text-3xl font-bold">PK Battle Arena</h2>
+          <p class="text-xs text-slate-400 mt-1">Creator battles will appear here when live battle hosting is available.</p>
         </div>
 
-        <!-- Split-Screen PK Battle Stage -->
-        <div class="glass rounded-3xl overflow-hidden grid grid-cols-1 lg:grid-cols-3 border border-efekt-pink/35 relative">
-          <div id="pk-stage-area" class="lg:col-span-2 relative bg-black min-h-[360px] flex flex-col justify-between overflow-hidden">
-            <!-- Dual Split Canvas -->
-            <div class="grid grid-cols-2 h-full absolute inset-0">
-              <div class="relative border-r border-white/20 overflow-hidden">
-                <img src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=800&q=80" onerror="this.src='https://placehold.co/600x800/0f172a/00f5d4?text=Chiamaka+Live'" class="w-full h-full object-cover opacity-90" alt="Chiamaka Live" />
-                <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30"></div>
-                <div class="absolute bottom-16 left-3 glass px-2.5 py-1 rounded-lg text-[11px] font-bold text-efekt-cyan">
-                  @chiamaka_o 🎤
-                </div>
-              </div>
-              <div class="relative overflow-hidden">
-                <img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80" onerror="this.src='https://placehold.co/600x800/0f172a/ff2a85?text=Tunde+Live'" class="w-full h-full object-cover opacity-90" alt="Tunde Live" />
-                <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30"></div>
-                <div class="absolute bottom-16 right-3 glass px-2.5 py-1 rounded-lg text-[11px] font-bold text-efekt-pink">
-                  @tunde.ade 🎸
-                </div>
-              </div>
-            </div>
-
-            <!-- Top Live Badges -->
-            <div class="relative z-10 p-4 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="bg-efekt-pink text-white text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider">PK ROUND 2</span>
-                <span class="glass text-white text-xs px-2.5 py-1 rounded-md font-semibold">
-                  <i class="fa-solid fa-eye text-efekt-cyan mr-1"></i> <span id="pk-viewers">18.4K</span>
-                </span>
-              </div>
-              <span class="glass px-3 py-1 rounded-full text-xs font-mono font-bold text-efekt-gold" id="pk-timer">02:45</span>
-            </div>
-
-            <!-- Tug-Of-War PK Score Bar -->
-            <div class="relative z-10 p-4 bg-gradient-to-t from-black/95 via-black/70 to-transparent space-y-1.5">
-              <div class="flex justify-between text-xs font-extrabold">
-                <span class="text-efekt-cyan" id="pk-left-score">54,200 PTS</span>
-                <span class="text-white text-[10px] uppercase tracking-widest">VS</span>
-                <span class="text-efekt-pink" id="pk-right-score">45,800 PTS</span>
-              </div>
-              <div class="w-full h-3 bg-slate-800 rounded-full overflow-hidden flex border border-white/15">
-                <div id="pk-bar-left" class="bg-gradient-to-r from-cyan-400 to-efekt-cyan h-full transition-all duration-500" style="width: 54%"></div>
-                <div id="pk-bar-right" class="bg-gradient-to-r from-efekt-pink to-purple-500 h-full transition-all duration-500" style="width: 46%"></div>
-              </div>
-            </div>
+        <div class="glass rounded-3xl border border-white/10 p-8 md:p-12 text-center space-y-4">
+          <div class="mx-auto w-16 h-16 rounded-2xl bg-efekt-purple/20 border border-efekt-purple/30 flex items-center justify-center">
+            <i class="fa-solid fa-trophy text-2xl text-efekt-purple"></i>
           </div>
-
-          <!-- Live Chat & Animated Virtual Gifts -->
-          <div class="p-4 flex flex-col justify-between bg-efekt-panel space-y-3">
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Live Stage Chat</h3>
-                <span class="text-[10px] text-efekt-gold font-bold">Wallet: <span id="live-wallet-display">1,500</span> EFK</span>
-              </div>
-              <div id="live-chat-box" class="h-48 overflow-y-auto space-y-2 text-xs pr-1">
-                <p><span class="text-efekt-cyan font-bold">@david.mensah:</span> That acoustic transition was smooth!! 🔥</p>
-                <p><span class="text-efekt-gold font-bold">@sara_kline:</span> Just sent a Diamond Crown 👑</p>
-                <p><span class="text-efekt-pink font-bold">@fatima_bello:</span> Chiamaka taking the lead!! 🚀</p>
-              </div>
-            </div>
-
-            <!-- Interactive Gift Launcher -->
-            <div class="space-y-2 pt-2 border-t border-white/10">
-              <p class="text-[10px] text-slate-400 font-semibold uppercase">Send Animated Gift (Boosts Left Team)</p>
-              <div class="grid grid-cols-4 gap-1.5">
-                <button onclick="sendLiveGift('Neon Rose', '🌹', 20, 400)" class="glass hover:border-efekt-cyan p-2 rounded-xl text-center transition-all active:scale-90">
-                  <div class="text-base">🌹</div>
-                  <div class="text-[9px] font-bold text-efekt-gold">20 EFK</div>
-                </button>
-                <button onclick="sendLiveGift('Rocket Boost', '🚀', 100, 2200)" class="glass hover:border-efekt-cyan p-2 rounded-xl text-center transition-all active:scale-90">
-                  <div class="text-base">🚀</div>
-                  <div class="text-[9px] font-bold text-efekt-gold">100 EFK</div>
-                </button>
-                <button onclick="sendLiveGift('Diamond Crown', '👑', 250, 5500)" class="glass hover:border-efekt-cyan p-2 rounded-xl text-center transition-all active:scale-90">
-                  <div class="text-base">👑</div>
-                  <div class="text-[9px] font-bold text-efekt-gold">250 EFK</div>
-                </button>
-                <button onclick="sendLiveGift('Cyber Dragon', '🐉', 500, 12000)" class="glass hover:border-efekt-pink p-2 rounded-xl text-center transition-all active:scale-90">
-                  <div class="text-base">🐉</div>
-                  <div class="text-[9px] font-bold text-efekt-pink">500 EFK</div>
-                </button>
-              </div>
-              <form onsubmit="postLiveChat(event)" class="flex gap-2">
-                <input id="live-chat-input" type="text" placeholder="Cheer in live chat..." class="flex-1 bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-efekt-cyan" />
-                <button type="submit" class="px-3.5 py-2 rounded-xl bg-efekt-cyan text-black font-bold text-xs">Send</button>
-              </form>
-            </div>
-          </div>
+          <h3 class="text-lg font-bold text-white">No live battles yet</h3>
+          <p class="text-sm text-slate-400 max-w-xl mx-auto">There are no active creator battles to show. Battle hosting, live video, viewer counts, scores, gifts and stage chat are not connected yet. This space will show real battle information once those features are implemented.</p>
+          <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] font-semibold text-slate-400">
+            <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+            Battle hosting not available yet
+          </span>
         </div>
       </div>
     </section>
