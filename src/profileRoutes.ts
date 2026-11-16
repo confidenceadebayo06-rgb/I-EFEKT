@@ -77,12 +77,13 @@ export function registerProfileRoutes(
       select: { id: true, handle: true, displayName: true, bio: true, avatarUrl: true }
     });
     if (!user) return reply.code(404).send({ error: 'Profile not found.' });
-    const [skills, interests, intents] = await Promise.all([
+    const [skills, goals, interests, intents] = await Promise.all([
       prisma.userSkill.findMany({ where: { userId, visibility: 'PUBLIC' }, select: { id: true, name: true, description: true, experienceLevel: true } }),
+      prisma.userGoal.findMany({ where: { userId, visibility: 'PUBLIC' }, select: { id: true, title: true, description: true, category: true, status: true, targetDate: true } }),
       prisma.userInterest.findMany({ where: { userId, visibility: 'PUBLIC' }, select: { id: true, name: true, category: true } }),
       prisma.profileIntent.findMany({ where: { userId, visibility: 'PUBLIC', active: true }, select: { id: true, type: true, title: true, description: true, category: true } })
     ]);
-    return { user, skills, interests, intents };
+    return { user, skills, goals, interests, intents };
   });
 
   app.get('/api/me/skills', { preHandler: auth }, async (request) => ({
