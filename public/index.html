@@ -677,6 +677,51 @@
           </div>
         </div>
 
+        <!-- Human Potential Profile: private-by-default skills, goals and collaboration intents -->
+        <section class="glass rounded-3xl p-5 space-y-4 border border-efekt-purple/25" aria-labelledby="potential-profile-title">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div><h3 id="potential-profile-title" class="font-display text-lg font-bold">Your Human Potential</h3><p class="text-xs text-slate-400">Show what you know, what you are building, and how people can work with you.</p></div>
+            <span class="text-[10px] rounded-full bg-efekt-cyan/10 text-efekt-cyan px-2 py-1">Private by default</span>
+          </div>
+          <div id="potential-profile-status" class="text-xs text-slate-400" aria-live="polite">Sign in to manage your skills, goals and offers.</div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <form onsubmit="savePotentialItem(event,'skills')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">Skills & abilities</h4>
+              <input id="potential-skill-name" required maxlength="80" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="e.g. Graphic design">
+              <input id="potential-skill-description" maxlength="500" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="How you use this skill (optional)">
+              <div class="grid grid-cols-2 gap-2"><select id="potential-skill-level" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option>BEGINNER</option><option>INTERMEDIATE</option><option>ADVANCED</option><option>EXPERT</option></select><select id="potential-skill-visibility" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select></div>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Add skill</button>
+              <div id="potential-skills-list" class="space-y-2 text-xs"></div>
+            </form>
+            <form onsubmit="savePotentialItem(event,'goals')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">Goals & direction</h4>
+              <input id="potential-goal-title" required maxlength="120" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="What are you working towards?">
+              <textarea id="potential-goal-description" maxlength="1000" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Your next practical step (optional)"></textarea>
+              <div class="grid grid-cols-2 gap-2"><select id="potential-goal-category" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PERSONAL">Personal</option><option value="CAREER">Career</option><option value="BUSINESS">Business</option><option value="LEARNING">Learning</option><option value="COMMUNITY">Community</option></select><select id="potential-goal-visibility" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select></div>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Add goal</button>
+              <div id="potential-goals-list" class="space-y-2 text-xs"></div>
+            </form>
+            <form onsubmit="savePotentialItem(event,'interests')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">Interests</h4>
+              <input id="potential-interest-name" required maxlength="80" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="What topics or fields interest you?">
+              <input id="potential-interest-category" maxlength="40" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Category (optional)">
+              <select id="potential-interest-visibility" class="w-full rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Add interest</button>
+              <div id="potential-interests-list" class="space-y-2 text-xs"></div>
+            </form>
+            <form onsubmit="savePotentialItem(event,'intents')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">What you offer or need</h4>
+              <select id="potential-intent-type" class="w-full rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="OFFER">I can offer</option><option value="SEEK">I am looking for</option></select>
+              <input id="potential-intent-title" required maxlength="120" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="e.g. I can mentor beginners / seeking a co-founder">
+              <textarea id="potential-intent-description" maxlength="1000" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Add useful details (optional)"></textarea>
+              <div class="grid grid-cols-2 gap-2"><input id="potential-intent-category" maxlength="40" class="min-w-0 rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Category"><select id="potential-intent-visibility" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select></div>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Save offer / request</button>
+              <div id="potential-intents-list" class="space-y-2 text-xs"></div>
+            </form>
+          </div>
+          <p class="text-[10px] text-slate-500">Your information starts private. Public items are visible on your profile only when you choose Public. Circle-only sharing is stored but not displayed until Circle membership permissions are available.</p>
+        </section>
+
         <!-- Profile Sub-Tabs (Published vs Saved Reels) -->
         <div class="flex items-center gap-4 border-b border-white/10 pb-2 text-xs font-bold">
           <button onclick="setProfileTab('published')" id="prof-tab-published" class="text-efekt-cyan border-b-2 border-efekt-cyan pb-2 -mb-2.5">
@@ -2040,6 +2085,43 @@
     // -------------------------------------------------------------------------
     // PROFILE, WALLET & WEB AUDIO AMBIENT SYNTH
     // -------------------------------------------------------------------------
+    // Human Potential Profile: server-backed, private-by-default profile data.
+    let potentialProfileCache = { skills: [], goals: [], interests: [], intents: [] };
+    async function loadPotentialProfile() {
+      const status = document.getElementById('potential-profile-status');
+      if (!signedInUser) { status.textContent = 'Sign in to manage your skills, goals and offers.'; ['skills','goals','interests','intents'].forEach(k => { const el=document.getElementById('potential-'+k+'-list'); if(el)el.textContent='Your saved items will appear here after sign-in.'; }); return; }
+      status.textContent = 'Loading your profile information…';
+      try { potentialProfileCache = await apiRequest('/me/profile'); renderPotentialProfile(); status.textContent = 'Your profile information is saved to your I-EFEKT account.'; }
+      catch (error) { status.textContent = error.message; }
+    }
+    function renderPotentialProfile() {
+      const labels = { skills: item => item.name + ' · ' + item.experienceLevel, goals: item => item.title + ' · ' + item.status, interests: item => item.name, intents: item => (item.type === 'OFFER' ? 'Offer: ' : 'Seeking: ') + item.title };
+      ['skills','goals','interests','intents'].forEach(kind => {
+        const el = document.getElementById('potential-'+kind+'-list');
+        const rows = potentialProfileCache[kind] || [];
+        el.innerHTML = rows.length ? rows.map(item => '<div class="flex items-start justify-between gap-2 rounded-lg bg-white/5 p-2"><div class="min-w-0"><div class="font-semibold break-words">'+escapeHtml(labels[kind](item))+'</div><div class="text-[10px] text-slate-400">'+escapeHtml(item.description || item.category || '')+'</div><div class="text-[9px] text-efekt-cyan mt-1">'+escapeHtml(item.visibility || 'PRIVATE')+'</div></div><button type="button" class="text-efekt-pink shrink-0" aria-label="Delete item" onclick="deletePotentialItem(\''+kind+'\',\''+escapeHtml(item.id)+'\')">Delete</button></div>').join('') : '<p class="text-[10px] text-slate-500">Nothing added yet.</p>';
+      });
+    }
+    async function savePotentialItem(event, kind) {
+      event.preventDefault();
+      if (!signedInUser) { openAuthPanel(); return showToast('Sign in to save your profile information.'); }
+      const value = id => document.getElementById(id).value.trim();
+      const visibility = value('potential-'+(kind==='intents'?'intent':kind.slice(0,-1))+'-visibility') || 'PRIVATE';
+      let payload, path;
+      if (kind === 'skills') { payload={name:value('potential-skill-name'),description:value('potential-skill-description'),experienceLevel:value('potential-skill-level'),visibility}; path='/me/skills'; }
+      else if (kind === 'goals') { payload={title:value('potential-goal-title'),description:value('potential-goal-description'),category:value('potential-goal-category'),visibility}; path='/me/goals'; }
+      else if (kind === 'interests') { payload={name:value('potential-interest-name'),category:value('potential-interest-category')||'GENERAL',visibility}; path='/me/interests'; }
+      else { payload={type:value('potential-intent-type'),title:value('potential-intent-title'),description:value('potential-intent-description'),category:value('potential-intent-category')||'GENERAL',visibility}; path='/me/intents'; }
+      try { await apiRequest(path,{method:'POST',body:JSON.stringify(payload)}); event.target.reset(); await loadPotentialProfile(); showToast('Saved to your profile.'); }
+      catch(error) { showToast(error.message); }
+    }
+    async function deletePotentialItem(kind, id) {
+      if (!signedInUser || !['skills','goals','interests','intents'].includes(kind)) return;
+      if (!confirm('Delete this item from your profile?')) return;
+      try { await apiRequest('/me/'+kind+'/'+encodeURIComponent(id),{method:'DELETE'}); await loadPotentialProfile(); showToast('Profile item deleted.'); }
+      catch(error) { showToast(error.message); }
+    }
+
     function renderProfileGrids() {
       const published = reelsData;
       const saved = reelsData.filter(r => r.saved);
@@ -2155,7 +2237,7 @@
         }
       });
 
-      if (viewName === "profile") renderProfileGrids();
+      if (viewName === "profile") { renderProfileGrids(); loadPotentialProfile(); }
     }
 
     function setFeedTab(tab) {
@@ -2229,7 +2311,7 @@
     function setAuthMode(mode){ authMode=mode; const reg=mode==='register'; document.getElementById('auth-display-name').classList.toggle('hidden',!reg); document.getElementById('auth-handle').classList.toggle('hidden',!reg); document.getElementById('auth-password').autocomplete=reg?'new-password':'current-password'; document.getElementById('auth-password').placeholder=reg?'Password (12+ characters)':'Password'; document.getElementById('auth-login-tab').className=reg?'flex-1 rounded-xl bg-white/10 p-2 text-xs font-bold':'flex-1 rounded-xl bg-efekt-cyan text-black p-2 text-xs font-bold'; document.getElementById('auth-register-tab').className=reg?'flex-1 rounded-xl bg-efekt-cyan text-black p-2 text-xs font-bold':'flex-1 rounded-xl bg-white/10 p-2 text-xs font-bold'; document.getElementById('auth-status').textContent=''; }
     async function submitAuth(ev){ ev.preventDefault(); const status=document.getElementById('auth-status'); status.textContent='Connecting securely…'; try { const payload={email:document.getElementById('auth-email').value.trim(),password:document.getElementById('auth-password').value}; if(authMode==='register'){payload.handle=document.getElementById('auth-handle').value.trim();payload.displayName=document.getElementById('auth-display-name').value.trim(); const result=await apiRequest('/auth/register',{method:'POST',body:JSON.stringify(payload)});status.textContent=result.message;return;} const result=await apiRequest('/auth/login',{method:'POST',body:JSON.stringify(payload)}); signedInUser=result.user; await refreshAccount(); status.textContent=`Signed in as @${result.user.handle}`; updateCloudAuthState(); loadCloudFeed(); flushCloudMessageOutbox(); syncCloudChanges(); setTimeout(closeAuthPanel,900); } catch(e){status.textContent=e.message;} }
     async function forgotPassword(){ const email=document.getElementById('auth-email').value.trim(); if(!email)return document.getElementById('auth-status').textContent='Enter your email address first.'; try{const r=await apiRequest('/auth/forgot-password',{method:'POST',body:JSON.stringify({email})});document.getElementById('auth-status').textContent=r.message;}catch(e){document.getElementById('auth-status').textContent=e.message;} }
-    async function refreshAccount(){ try{const r=await apiRequest('/me');signedInUser={...r.user,displayName:r.user.display_name||r.user.displayName||'',bio:r.user.bio||''};const pref=await apiRequest('/preferences');personalizationEnabled=!!pref.enabled;if(pref.enabled&&pref.preferences&&Object.keys(pref.preferences).length)preferenceModel=pref.preferences;else if(!pref.enabled){localStorage.removeItem(EFEKT_PREF_KEY);preferenceModel={creators:{},topics:{},sounds:{},effects:{},moods:{},negative:{},events:[],totals:{views:0,watchMs:0,signals:0}};} }catch{signedInUser=null;}updatePersonalizationUI();updateCloudAuthState();if(signedInUser){const img=document.querySelector('#view-profile .story-ring img');if(img&&signedInUser.avatar_url)img.src=signedInUser.avatar_url;connectCloudSocket();} }
+    async function refreshAccount(){ try{const r=await apiRequest('/me');signedInUser={...r.user,displayName:r.user.display_name||r.user.displayName||'',bio:r.user.bio||''};const pref=await apiRequest('/preferences');personalizationEnabled=!!pref.enabled;if(pref.enabled&&pref.preferences&&Object.keys(pref.preferences).length)preferenceModel=pref.preferences;else if(!pref.enabled){localStorage.removeItem(EFEKT_PREF_KEY);preferenceModel={creators:{},topics:{},sounds:{},effects:{},moods:{},negative:{},events:[],totals:{views:0,watchMs:0,signals:0}};} }catch{signedInUser=null;}updatePersonalizationUI();updateCloudAuthState();if(signedInUser){loadPotentialProfile();const img=document.querySelector('#view-profile .story-ring img');if(img&&signedInUser.avatar_url)img.src=signedInUser.avatar_url;connectCloudSocket();} }
     function updateCloudAuthState(){const b=document.getElementById('auth-open-btn');const s=document.getElementById('cloud-auth-state');if(s)s.textContent=signedInUser?`Signed in: @${signedInUser.handle}`:'Cloud upload requires sign-in';if(b)b.textContent=signedInUser?`@${signedInUser.handle} · Account`:'Sign in / Create account';}
     async function uploadVideoPost(ev){const file=ev.target.files?.[0];ev.target.value='';if(!file)return;if(!file.type.startsWith('video/'))return showToast('Choose a video file');if(file.size>100*1024*1024)return showToast('Video exceeds 100 MB limit');if(!signedInUser){openAuthPanel();return showToast('Sign in before uploading');}try{showToast('Preparing secure upload…');const p=await apiRequest('/media/presign',{method:'POST',body:JSON.stringify({fileName:file.name,contentType:file.type,size:file.size})});const put=await fetch(p.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type},body:file});if(!put.ok)throw new Error('Cloud storage upload failed');const caption=prompt('Add a caption for your video:')||'';await apiRequest('/posts',{method:'POST',body:JSON.stringify({assetId:p.assetId,caption})});showToast('Video published to I-EFEKT cloud feed');await loadCloudFeed();}catch(e){showToast(e.message);}}
     function sendPlaybackEvent(video,eventType,watchMs=0){const postId=video.dataset.postId;if(!signedInUser||!personalizationEnabled||!postId)return;apiRequest('/events',{method:'POST',body:JSON.stringify({postId,eventType,watchMs,metadata:{currentTime:Math.round(video.currentTime||0),duration:Number.isFinite(video.duration)?Math.round(video.duration):null}})}).catch(()=>{});}

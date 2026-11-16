@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
 import { startBackupScheduler } from './backupScheduler.js';
+import { registerProfileRoutes } from './profileRoutes.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -153,6 +154,8 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
   const row = await prisma.syncChange.create({ data: { userId, entityType, entityId } });
   io.to(`user:${userId}`).emit('sync:changed', { cursor: row.id.toString(), entity_type: entityType, entity_id: entityId });
 };
+
+registerProfileRoutes(app, prisma, auth, emitSync);
 const sendMail = async (to: string, subject: string, html: string) => {
   await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
 };
@@ -333,7 +336,7 @@ app.patch('/api/me/profile', { preHandler: auth }, async (req, reply) => {
   const user = await prisma.user.update({ where: { id: req.user!.id }, data }); return { user: { handle: user.handle, display_name: user.displayName, bio: user.bio, avatar_url: user.avatarUrl } };
 });
 app.delete('/api/me', { preHandler: auth }, async (req, reply) => { if ((req.body as any)?.confirm !== 'DELETE MY ACCOUNT') return reply.code(400).send({ error: 'Account deletion confirmation is required.' }); await prisma.user.delete({ where: { id: req.user!.id } }); reply.clearCookie(cookieName, { path: '/' }); return { ok: true }; });
-app.get('/api/me/export', { preHandler: auth }, async (req) => { const user = await prisma.user.findUnique({ where: { id: req.user!.id }, include: { posts: true, memberships: { include: { conversation: { include: { messages: true } } } }, preferences: true, stories: true } }); return { exportedAt: new Date().toISOString(), account: user }; });
+app.get('/api/me/export', { preHandler: auth }, async (req) => { const user = await prisma.user.findUnique({ where: { id: req.user!.id }, include: { posts: true, memberships: { include: { conversation: { include: { messages: true } } } }, preferences: true, stories: true, skills: true, goals: true, interests: true, profileIntents: true } }); return { exportedAt: new Date().toISOString(), account: user }; });
 app.get('/api/preferences', { preHandler: auth }, async (req) => { const p = await prisma.preference.findUnique({ where: { userId: req.user!.id } }); return { enabled: p?.enabled ?? false, preferences: p?.preferences ?? {} }; });
 app.put('/api/preferences', { preHandler: auth }, async (req) => { const body = req.body as any; const p = await prisma.preference.upsert({ where: { userId: req.user!.id }, create: { userId: req.user!.id, enabled: !!body.enabled, preferences: body.preferences || {} }, update: { enabled: !!body.enabled, preferences: body.preferences || {} } }); return { enabled: p.enabled, preferences: p.preferences }; });
 app.get('/api/users/search', { preHandler: auth }, async (req) => { const q = String((req.query as any).q || '').trim(); if (q.length < 2) return { users: [] }; const users = await prisma.user.findMany({ where: { id: { not: req.user!.id }, OR: [{ handle: { contains: q } }, { displayName: { contains: q } }] }, take: 20, select: { id: true, handle: true, displayName: true, avatarUrl: true } }); return { users: users.map(u => ({ ...u, display_name: u.displayName })) }; });
