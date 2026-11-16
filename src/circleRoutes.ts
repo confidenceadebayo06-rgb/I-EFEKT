@@ -37,6 +37,13 @@ async function activeMember(prisma: PrismaClient, groupId: string, userId: strin
   return prisma.groupMember.findFirst({ where: { groupId, userId, status: 'ACTIVE' } });
 }
 async function canManage(prisma: PrismaClient, groupId: string, userId: string) {
+  // The legacy SocialGroup.ownerId remains authoritative for existing groups
+  // whose older GroupMember rows predate Circle roles.
+  const group = await prisma.socialGroup.findUnique({
+    where: { id: groupId },
+    select: { ownerId: true }
+  });
+  if (group?.ownerId === userId) return true;
   const member = await activeMember(prisma, groupId, userId);
   return !!member && ['OWNER', 'FACILITATOR'].includes(member.role);
 }
@@ -91,8 +98,14 @@ export function registerCircleRoutes(
     const membership = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId: circle.id, userId: request.user!.id } }
     });
-    if (!membership && circle.visibility !== 'DISCOVERABLE') return reply.code(404).send({ error: 'Circle not found.' });
-    return { circle, membership: membership ? { role: membership.role, status: membership.status } : null };
+    const isLegacyOwner = circle.ownerId === request.user!.id;
+    if (!membership && !isLegacyOwner && circle.visibility !== 'DISCOVERABLE') return reply.code(404).send({ error: 'Circle not found.' });
+    return {
+      circle,
+      membership: membership
+        ? { role: membership.role, status: membership.status }
+        : isLegacyOwner ? { role: 'OWNER', status: 'ACTIVE' } : null
+    };
   });
 
   app.post('/api/circles/:id/join', { preHandler: auth }, async (request, reply) => {
