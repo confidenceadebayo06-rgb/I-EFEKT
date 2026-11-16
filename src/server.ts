@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
 import { startBackupScheduler } from './backupScheduler.js';
-import { registerStagingTestAccountRoute } from './stagingTestAccount.js';
+import { registerStagingTestAccountPasswordResetRoute, registerStagingTestAccountRoute } from './stagingTestAccount.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -481,6 +481,7 @@ io.on('connection', socket => {
 
 app.setErrorHandler((error, _req, reply) => { app.log.error(error); reply.code(500).send({ error: process.env.NODE_ENV === 'production' ? 'An unexpected server error occurred.' : (error instanceof Error ? error.message : String(error)) }); });
 registerStagingTestAccountRoute(app, prisma);
+registerStagingTestAccountPasswordResetRoute(app, prisma);
 try { await app.listen({ port, host: '0.0.0.0' }); app.log.info(`I-EFEKT API listening on ${port}`); }
 catch (err) { app.log.error(err); process.exit(1); }
 const shutdown = async () => { stopBackupScheduler(); rankingEngine.close(); await limiterRedis.quit().catch(() => undefined); await prisma.$disconnect(); await app.close(); process.exit(0); };
