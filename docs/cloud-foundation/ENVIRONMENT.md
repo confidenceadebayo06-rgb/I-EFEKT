@@ -33,3 +33,25 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=true
 ```
 
 Use independent high-entropy secrets for the IP hashing and CSRF keys. Do not reuse JWT_SECRET. Never commit `.env`, credentials, signed URLs or real user data.
+
+
+## Dropbox encrypted backup connection (OAuth preparation)
+
+Configure these only after the OAuth callback code has been reviewed and deployed:
+- `DROPBOX_APP_KEY`: Dropbox app key.
+- `DROPBOX_APP_SECRET`: Dropbox app secret; keep it in Railway's secret variable store.
+- `DROPBOX_REDIRECT_URI`: exact HTTPS callback URL registered in the Dropbox app console, e.g. `https://<production-domain>/api/backup/dropbox/callback`.
+- `DROPBOX_TOKEN_ENCRYPTION_KEY`: base64 encoding of 32 cryptographically random bytes, used for AES-256-GCM encryption of the offline refresh token before it is stored in MySQL.
+- `DROPBOX_BACKUP_ADMIN_USER_ID`: exact I-EFEKT user ID permitted to initiate the system-wide Dropbox connection; do not leave unset in production.
+- `BACKUP_ENCRYPTION_KEY`: a separate base64-encoded 32-byte key for encrypting database dumps. Keep it separate from the OAuth token key and store it only in Railway secrets.
+
+The OAuth flow requests offline access and validates a one-time, ten-minute, HttpOnly state cookie. The callback stores only an AES-256-GCM encrypted refresh token in the `DropboxCredential` singleton row. It never returns or logs the token. Keep Dropbox app permissions limited to the four scopes above; the backup uploader must additionally constrain all paths to `/I-EFEKT/Production-Backups`.
+
+Do not register the production redirect URI or set production secrets until this branch passes review and deployment is explicitly approved. This connection alone does not create or verify any backup.
+
+
+## Encrypted MySQL backup operation
+
+The app's Redis-coordinated scheduler attempts one backup per UTC day at or after 03:00 UTC. It invokes `scripts/backup-mysql.mjs`, which runs `mariadb-dump` with a consistent InnoDB snapshot, gzip-compresses the dump, encrypts it with AES-256-GCM, and uploads it using Dropbox upload sessions. The uploader accepts no user-supplied path: its destination is fixed to `/I-EFEKT/Production-Backups/MySQL`. Backup files include a small authenticated-encryption header; the encryption key is held separately in Railway secrets.
+
+For local/CI testing only, set `BACKUP_OUTPUT_DIR` and `BACKUP_ENCRYPTION_KEY`, then run `node scripts/backup-mysql.mjs --local-only`. The isolated restore smoke test is `node scripts/restore-backup-smoke.mjs <file>`; it creates and drops a uniquely named test database and must never be pointed at a production credential. Do not mark backups reliable until a restore has been tested against a disposable database and the restored contents have been checked.

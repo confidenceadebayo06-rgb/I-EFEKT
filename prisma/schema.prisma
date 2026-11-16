@@ -301,3 +301,15 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([action, createdAt])
 }
+
+
+/// Single encrypted Dropbox offline credential for scheduled production backups.
+model DropboxCredential {
+  id                    Int      @id @default(1)
+  encryptedRefreshToken String   @db.Text
+  iv                    String   @db.VarChar(32)
+  authTag               String   @db.VarChar(32)
+  accountId             String?  @db.VarChar(64)
+  connectedAt           DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}

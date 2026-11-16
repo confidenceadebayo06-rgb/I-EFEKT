@@ -1,8 +1,9 @@
 name: I-EFEKT CI
+# Run the same validation for stacked feature branches and their pull requests.
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: ['**']
 
@@ -22,10 +23,22 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
     env:
       DATABASE_URL: mysql://root:ci-root-password@127.0.0.1:3306/iefekt_ci
       JWT_SECRET: ci-only-secret-not-for-production
       NODE_ENV: test
+      PORT: 3000
+      REDIS_URL: redis://127.0.0.1:6379
+      BACKUP_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,8 +52,34 @@ jobs:
         run: npx prisma generate
       - name: Apply schema to CI MySQL
         run: npx prisma db push
+      - name: Install MariaDB client tools for backup/restore smoke test
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
       - name: Build TypeScript and C++ ranking engine
         run: npm run build
+      - name: Verify encrypted MySQL backup and isolated restore
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/iefekt-backups"
+          mariadb --host 127.0.0.1 --port 3306 --user root --password=ci-root-password iefekt_ci --execute "CREATE TABLE BackupSmokeCheck (id INT PRIMARY KEY, marker VARCHAR(40) NOT NULL); INSERT INTO BackupSmokeCheck VALUES (1, 'restore-ok');"
+          BACKUP_OUTPUT_DIR="$RUNNER_TEMP/iefekt-backups" node scripts/backup-mysql.mjs --local-only > "$RUNNER_TEMP/backup-result.json"
+          BACKUP_FILE="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).file)" "$RUNNER_TEMP/backup-result.json")"
+          IEFEKT_ALLOW_RESTORE_SMOKE=1 node scripts/restore-backup-smoke.mjs "$BACKUP_FILE"
+      - name: Start API for HTTP security contract tests
+        shell: bash
+        run: |
+          npm start > "$RUNNER_TEMP/iefekt-api.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/iefekt-api.pid"
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:3000/api/health > /dev/null; then
+              echo "I-EFEKT API is ready for security tests"
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/iefekt-api.log"
+          exit 1
+      - name: Run security contract tests
+        run: npm run test:security
       - name: Validate existing PWA inline JavaScript
         run: node tests/security/check-public-inline-scripts.mjs
       - name: Confirm Phase 1 session models are generated
