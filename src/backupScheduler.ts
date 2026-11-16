@@ -6,6 +6,11 @@ import type { Redis } from 'ioredis';
 const RELEASE_LOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
 export function startBackupScheduler(redis: Redis, log: { info: (...args: any[]) => void; error: (...args: any[]) => void }) {
+  // Staging and test environments must never schedule automatic uploads to the production backup folder.
+  if (process.env.BACKUP_SCHEDULER_ENABLED === 'false') {
+    log.info({}, 'Scheduled backups disabled by BACKUP_SCHEDULER_ENABLED');
+    return () => undefined;
+  }
   const check = async () => {
     const now = new Date();
     if (now.getUTCHours() < 3) return;
