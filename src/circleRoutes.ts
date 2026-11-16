@@ -88,7 +88,9 @@ export function registerCircleRoutes(
       include: { _count: { select: { members: true } } }
     });
     if (!circle) return reply.code(404).send({ error: 'Circle not found.' });
-    const membership = await activeMember(prisma, circle.id, request.user!.id);
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: circle.id, userId: request.user!.id } }
+    });
     if (!membership && circle.visibility !== 'DISCOVERABLE') return reply.code(404).send({ error: 'Circle not found.' });
     return { circle, membership: membership ? { role: membership.role, status: membership.status } : null };
   });
