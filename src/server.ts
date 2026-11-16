@@ -130,7 +130,7 @@ app.post('/api/auth/register', async (req, reply) => {
   const verifyUrl = `${origin}/api/auth/verify?token=${token}`;
   try { await sendMail(user.email, 'Verify your I-EFEKT email', `<p>Welcome to I-EFEKT.</p><p><a href="${verifyUrl}">Verify your email address</a></p><p>This link expires in 24 hours.</p>`); }
   catch (error) { req.log.error(error, 'Email delivery failed'); }
-  return reply.code(201).send({ message: 'Account created. Check your email for the verification link. In local development, open Mailpit at http://localhost:8025.' });
+  return reply.code(201).send({ message: 'Account created. You can now sign in. Email verification is optional.' });
 });
 app.get('/api/auth/verify', async (req, reply) => {
   const token = String((req.query as any).token || ''); if (!token) return reply.code(400).send({ error: 'Missing verification token.' });
@@ -150,7 +150,6 @@ app.post('/api/auth/login', async (req, reply) => {
   if (!p.success) return reply.code(400).send({ error: 'Enter a valid email and password.' });
   const user = await prisma.user.findUnique({ where: { email: p.data.email.toLowerCase() } });
   if (!user || !(await bcrypt.compare(p.data.password, user.passwordHash))) return reply.code(401).send({ error: 'Incorrect email or password.' });
-  if (!user.emailVerifiedAt) return reply.code(403).send({ error: 'Please verify your email address before signing in.' });
   reply.setCookie(cookieName, makeToken({ id: user.id, email: user.email, handle: user.handle }), cookieOptions);
   return { user: { id: user.id, email: user.email, handle: user.handle, display_name: user.displayName, bio: user.bio, avatar_url: user.avatarUrl } };
 });
