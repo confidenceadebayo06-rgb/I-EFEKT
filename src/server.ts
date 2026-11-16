@@ -91,6 +91,7 @@ const authRateRules: Array<{ matches: (path: string) => boolean; limit: number; 
   { matches: p => p === '/api/auth/login', limit: 10, windowMs: 15 * 60 * 1000 },
   { matches: p => p === '/api/auth/register', limit: 5, windowMs: 60 * 60 * 1000 },
   { matches: p => p === '/api/auth/forgot-password', limit: 5, windowMs: 60 * 60 * 1000 },
+  { matches: p => p === '/api/auth/resend-verification', limit: 3, windowMs: 60 * 60 * 1000 },
   { matches: p => p === '/api/auth/reset-password', limit: 10, windowMs: 60 * 60 * 1000 },
   { matches: p => p === '/api/auth/verify', limit: 20, windowMs: 60 * 60 * 1000 }
 ];
@@ -252,6 +253,26 @@ app.post('/api/auth/register', async (req, reply) => {
   try { await sendMail(user.email, 'Verify your I-EFEKT email', `<p>Welcome to I-EFEKT.</p><p><a href="${verifyUrl}">Verify your email address</a></p><p>This link expires in 24 hours.</p>`); }
   catch (error) { req.log.error(error, 'Email delivery failed'); }
   return reply.code(201).send({ message: 'Account created. Check your email for the verification link. In local development, open Mailpit at http://localhost:8025.' });
+});
+app.post('/api/auth/resend-verification', async (req, reply) => {
+  const parsed = z.object({ email: z.string().email().max(254) }).safeParse(req.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'Enter a valid email address.' });
+  const genericMessage = 'If that email belongs to an unverified account, a fresh verification link has been sent.';
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
+  if (!user || user.emailVerifiedAt) return { message: genericMessage };
+  const token = randomBytes(32).toString('hex');
+  await prisma.$transaction([
+    prisma.verificationToken.deleteMany({ where: { userId: user.id } }),
+    prisma.verificationToken.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
+  ]);
+  const verifyUrl = `${origin}/api/auth/verify?token=${token}`;
+  try {
+    await sendMail(user.email, 'Verify your I-EFEKT email', `<p>Here is your new I-EFEKT verification link.</p><p><a href="${verifyUrl}">Verify your email address</a></p><p>This link expires in 24 hours. Any older verification link is no longer valid.</p>`);
+  } catch (error) {
+    req.log.error({ error }, 'Verification email resend failed');
+    return reply.code(503).send({ error: 'We could not send the verification email. Please try again later.' });
+  }
+  return { message: genericMessage };
 });
 app.get('/api/auth/verify', async (req, reply) => {
   const token = String((req.query as any).token || ''); if (!token) return reply.code(400).send({ error: 'Missing verification token.' });
