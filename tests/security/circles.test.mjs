@@ -36,6 +36,7 @@ test('Circle discovery and collaboration endpoints require authentication', asyn
 test('Circle membership, approval, collaboration and privacy are enforced', async () => {
   const suffix = randomUUID();
   const users = [];
+  let circleId;
   try {
     for (const role of ['owner', 'member', 'stranger']) {
       const user = await prisma.user.create({ data: {
@@ -73,6 +74,7 @@ test('Circle membership, approval, collaboration and privacy are enforced', asyn
     });
     assert.equal(created.status, 201);
     const { circle } = await created.json();
+    circleId = circle.id;
     assert.equal(circle.visibility, 'DISCOVERABLE');
 
     const join = await request(`/api/circles/${circle.id}/join`, {
@@ -132,6 +134,7 @@ test('Circle membership, approval, collaboration and privacy are enforced', asyn
     });
     assert.equal(removed.status, 200);
   } finally {
+    if (circleId) await prisma.socialGroup.deleteMany({ where: { id: circleId } });
     for (const user of users) {
       if (user?.id) await prisma.user.deleteMany({ where: { id: user.id } });
     }
