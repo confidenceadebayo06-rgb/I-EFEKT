@@ -2123,8 +2123,16 @@
     }
 
     function renderProfileGrids() {
-      const published = reelsData;
-      const saved = reelsData.filter(r => r.saved);
+      // The feed contains public/demo creators. Never treat feed items as the
+      // signed-in user's own publications or saved collection by default.
+      const published = signedInUser
+        ? reelsData.filter(r => r.postId && r.userId === signedInUser.id)
+        : [];
+      // Only show saved cloud posts associated with the signed-in account.
+      // Demo items may carry a seeded "saved" flag and must not appear here.
+      const saved = signedInUser
+        ? reelsData.filter(r => r.postId && r.saved === true)
+        : [];
       document.getElementById("published-count").textContent = published.length;
       document.getElementById("saved-count").textContent = saved.length;
 
@@ -2132,7 +2140,7 @@
       const grid = document.getElementById("profile-reels-grid");
 
       if (list.length === 0) {
-        grid.innerHTML = `<p class="col-span-full text-center text-xs text-slate-500 py-10">No reels in this tab yet.</p>`;
+        grid.innerHTML = `<p class="col-span-full text-center text-xs text-slate-500 py-10">${currentProfileTab === "published" ? "You haven't published any Reels yet." : "You haven't saved any Reels yet."}</p>`;
         return;
       }
 
