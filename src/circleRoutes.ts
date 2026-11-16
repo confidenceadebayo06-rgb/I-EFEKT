@@ -131,6 +131,23 @@ export function registerCircleRoutes(
     return { members };
   });
 
+  app.get('/api/circles/:id/pending', { preHandler: auth }, async (request, reply) => {
+    const parsed = idParams.safeParse(request.params);
+    if (!parsed.success) return bad(reply, 'Invalid Circle ID.');
+    if (!await canManage(prisma, parsed.data.id, request.user!.id)) {
+      return reply.code(403).send({ error: 'Only Circle owners or facilitators can view pending requests.' });
+    }
+    const circle = await prisma.socialGroup.findUnique({ where: { id: parsed.data.id }, select: { id: true, joinPolicy: true } });
+    if (!circle) return reply.code(404).send({ error: 'Circle not found.' });
+    if (circle.joinPolicy !== 'APPROVAL') return { requests: [] };
+    const requests = await prisma.groupMember.findMany({
+      where: { groupId: circle.id, status: 'PENDING' },
+      orderBy: { joinedAt: 'asc' },
+      select: { id: true, joinedAt: true, user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } } }
+    });
+    return { requests };
+  });
+
   app.post('/api/circles/:id/members/:userId/approve', { preHandler: auth }, async (request, reply) => {
     const params = z.object({ id: z.string().min(1).max(191), userId: z.string().min(1).max(191) }).safeParse(request.params);
     if (!params.success) return bad(reply, 'Invalid Circle or user ID.');
