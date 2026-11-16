@@ -35,3 +35,16 @@ CREATE TABLE `CircleSupportRequest` (
   CONSTRAINT `CircleSupportRequest_groupId_fkey` FOREIGN KEY (`groupId`) REFERENCES `SocialGroup`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `CircleSupportRequest_requesterId_fkey` FOREIGN KEY (`requesterId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci ENGINE=InnoDB;
+
+-- Preserve owner permissions for existing groups and ensure every group owner
+-- has an active membership row so the Circle owner controls work immediately.
+UPDATE `GroupMember` gm
+INNER JOIN `SocialGroup` sg ON sg.`id` = gm.`groupId` AND sg.`ownerId` = gm.`userId`
+SET gm.`role` = 'OWNER', gm.`status` = 'ACTIVE';
+
+INSERT INTO `GroupMember` (`id`, `groupId`, `userId`, `role`, `status`, `joinedAt`)
+SELECT CONCAT('circle_owner_', SUBSTRING(SHA2(CONCAT(sg.`id`, ':', sg.`ownerId`), 256), 1, 32)),
+       sg.`id`, sg.`ownerId`, 'OWNER', 'ACTIVE', sg.`createdAt`
+FROM `SocialGroup` sg
+LEFT JOIN `GroupMember` gm ON gm.`groupId` = sg.`id` AND gm.`userId` = sg.`ownerId`
+WHERE gm.`id` IS NULL;
