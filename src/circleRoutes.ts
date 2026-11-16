@@ -154,6 +154,7 @@ export function registerCircleRoutes(
     if (!await canManage(prisma, params.data.id, request.user!.id)) return reply.code(403).send({ error: 'Only Circle owners or facilitators can approve members.' });
     const circle = await prisma.socialGroup.findUnique({ where: { id: params.data.id } });
     if (!circle) return reply.code(404).send({ error: 'Circle not found.' });
+    if (circle.joinPolicy !== 'APPROVAL') return reply.code(409).send({ error: 'This Circle does not require join approval.' });
     const pending = await prisma.groupMember.findFirst({ where: { groupId: circle.id, userId: params.data.userId, status: 'PENDING' } });
     if (!pending) return reply.code(404).send({ error: 'Pending membership request not found.' });
     const count = await prisma.groupMember.count({ where: { groupId: circle.id, status: 'ACTIVE' } });
