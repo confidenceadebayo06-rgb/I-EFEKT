@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
-type AuthGuard = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown> | unknown;
+type AuthGuard = (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply> | void | FastifyReply;
 type SyncWriter = (userId: string, entityType: string, entityId: string) => Promise<unknown>;
 
 const visibility = z.enum(['PRIVATE', 'CIRCLES', 'PUBLIC']);
