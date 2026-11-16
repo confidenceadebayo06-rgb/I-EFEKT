@@ -13,7 +13,7 @@ RUN npm run engine:build && npx prisma generate && npx tsc -p tsconfig.json
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache libstdc++ openssl mariadb-client && addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache libstdc++ openssl mariadb-client redis && addgroup -S app && adduser -S app -G app
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/build ./build
@@ -23,4 +23,6 @@ COPY --from=build --chown=app:app /app/scripts ./scripts
 COPY --chown=app:app public ./public
 USER app
 EXPOSE 3000
-CMD ["node","dist/server.js"]
+# Single-replica staging fallback only: local ephemeral Redis keeps the staging auth limiter operational
+# when the Railway Free plan cannot provision a separate Redis service. Production still requires managed Redis.
+CMD ["sh","-c","redis-server --bind 127.0.0.1 --save '' --appendonly no --daemonize yes && exec node dist/server.js"]
