@@ -8,7 +8,6 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { Redis } from 'ioredis';
 import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createCipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
@@ -18,6 +17,7 @@ import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
 import { startBackupScheduler } from './backupScheduler.js';
 import { registerProfileRoutes } from './profileRoutes.js';
+import { registerCircleRoutes } from './circleRoutes.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -35,11 +35,7 @@ const origin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const cookieName = 'iefekt_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '../public');
-const mailer = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'localhost', port: Number(process.env.SMTP_PORT || 1025),
-  secure: false,
-  ...(process.env.SMTP_USER ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' } } : {})
-});
+
 
 type SessionUser = { id: string; email: string; handle: string; sessionId: string };
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
@@ -90,6 +86,7 @@ const authRateRules: Array<{ matches: (path: string) => boolean; limit: number; 
   { matches: p => p === '/api/auth/login', limit: 10, windowMs: 15 * 60 * 1000 },
   { matches: p => p === '/api/auth/register', limit: 5, windowMs: 60 * 60 * 1000 },
   { matches: p => p === '/api/auth/forgot-password', limit: 5, windowMs: 60 * 60 * 1000 },
+  { matches: p => p === '/api/auth/resend-verification', limit: 3, windowMs: 60 * 60 * 1000 },
   { matches: p => p === '/api/auth/reset-password', limit: 10, windowMs: 60 * 60 * 1000 },
   { matches: p => p === '/api/auth/verify', limit: 20, windowMs: 60 * 60 * 1000 }
 ];
@@ -128,7 +125,7 @@ app.addHook('preHandler', async (req, reply) => {
   if (!raw) { req.user = null; return; }
   const session = await prisma.deviceSession.findUnique({ where: { tokenHash: hashToken(raw) }, include: { user: { select: { id: true, email: true, handle: true, emailVerifiedAt: true } } } });
   if (session) {
-    if (session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) { req.user = null; reply.clearCookie(cookieName, { path: '/' }); return; }
+    if (session.revokedAt || session.expiresAt <= new Date()) { req.user = null; reply.clearCookie(cookieName, { path: '/' }); return; }
     req.user = { id: session.user.id, email: session.user.email, handle: session.user.handle, sessionId: session.id };
     if (Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) void prisma.deviceSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(error => req.log.warn({ error }, 'Session activity update failed'));
     return;
@@ -138,7 +135,7 @@ app.addHook('preHandler', async (req, reply) => {
     const legacy = jwt.verify(raw, secret) as { id?: string };
     if (!legacy.id) throw new Error('Invalid legacy session');
     const user = await prisma.user.findUnique({ where: { id: legacy.id }, select: { id: true, email: true, handle: true, emailVerifiedAt: true } });
-    if (!user?.emailVerifiedAt) throw new Error('Legacy account is not verified');
+    if (!user) throw new Error('Legacy account not found');
     const created = await createSession(user, req, reply);
     req.user = { id: user.id, email: user.email, handle: user.handle, sessionId: created.id };
     await audit(user.id, 'session.legacy_exchanged', req, created.id);
@@ -156,8 +153,60 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
 };
 
 registerProfileRoutes(app, prisma, auth, emitSync);
+registerCircleRoutes(app, prisma, auth, emitSync);
 const sendMail = async (to: string, subject: string, html: string) => {
-  await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  const gmailUser = process.env.GMAIL_USER;
+  if (!clientId || !clientSecret || !refreshToken || !gmailUser) {
+    throw new Error('Gmail API credentials are not fully configured.');
+  }
+
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token'
+    }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!tokenResponse.ok) {
+    app.log.error({ status: tokenResponse.status }, 'Gmail OAuth token refresh failed');
+    throw new Error('Gmail authorization failed.');
+  }
+  const tokenData = await tokenResponse.json() as { access_token?: string };
+  if (!tokenData.access_token) throw new Error('Gmail authorization returned no access token.');
+
+  const from = (process.env.EMAIL_FROM || gmailUser).replace(/[\\r\\n]/g, '');
+  const safeTo = to.replace(/[\\r\\n]/g, '');
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;
+  const encodedHtml = Buffer.from(html, 'utf8').toString('base64').match(/.{1,76}/g)?.join('\\r\\n') || '';
+  const mimeMessage = [
+    `From: ${from}`,
+    `To: ${safeTo}`,
+    `Subject: ${encodedSubject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    encodedHtml
+  ].join('\\r\\n');
+  const raw = Buffer.from(mimeMessage, 'utf8').toString('base64url');
+
+  const sendResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!sendResponse.ok) {
+    app.log.error({ status: sendResponse.status }, 'Gmail API message send failed');
+    throw new Error('Gmail API email delivery failed.');
+  }
 };
 
 
@@ -249,7 +298,27 @@ app.post('/api/auth/register', async (req, reply) => {
   const verifyUrl = `${origin}/api/auth/verify?token=${token}`;
   try { await sendMail(user.email, 'Verify your I-EFEKT email', `<p>Welcome to I-EFEKT.</p><p><a href="${verifyUrl}">Verify your email address</a></p><p>This link expires in 24 hours.</p>`); }
   catch (error) { req.log.error(error, 'Email delivery failed'); }
-  return reply.code(201).send({ message: 'Account created. Check your email for the verification link. In local development, open Mailpit at http://localhost:8025.' });
+  return reply.code(201).send({ message: 'Account created. You can now sign in. Email verification is optional.' });
+});
+app.post('/api/auth/resend-verification', async (req, reply) => {
+  const parsed = z.object({ email: z.string().email().max(254) }).safeParse(req.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'Enter a valid email address.' });
+  const genericMessage = 'If that email belongs to an unverified account, a fresh verification link has been sent.';
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
+  if (!user || user.emailVerifiedAt) return { message: genericMessage };
+  const token = randomBytes(32).toString('hex');
+  await prisma.$transaction([
+    prisma.verificationToken.deleteMany({ where: { userId: user.id } }),
+    prisma.verificationToken.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
+  ]);
+  const verifyUrl = `${origin}/api/auth/verify?token=${token}`;
+  try {
+    await sendMail(user.email, 'Verify your I-EFEKT email', `<p>Here is your new I-EFEKT verification link.</p><p><a href="${verifyUrl}">Verify your email address</a></p><p>This link expires in 24 hours. Any older verification link is no longer valid.</p>`);
+  } catch (error) {
+    req.log.error({ errorType: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, 'Verification email resend failed');
+    return reply.code(503).send({ error: 'We could not send the verification email. Please try again later.' });
+  }
+  return { message: genericMessage };
 });
 app.get('/api/auth/verify', async (req, reply) => {
   const token = String((req.query as any).token || ''); if (!token) return reply.code(400).send({ error: 'Missing verification token.' });
@@ -270,7 +339,6 @@ app.post('/api/auth/login', async (req, reply) => {
   if (!p.success) return reply.code(400).send({ error: 'Enter a valid email and password.' });
   const user = await prisma.user.findUnique({ where: { email: p.data.email.toLowerCase() } });
   if (!user || !(await bcrypt.compare(p.data.password, user.passwordHash))) return reply.code(401).send({ error: 'Incorrect email or password.' });
-  if (!user.emailVerifiedAt) return reply.code(403).send({ error: 'Please verify your email address before signing in.' });
   const session = await createSession(user, req, reply);
   await audit(user.id, 'auth.login', req, session.id);
   return { user: { id: user.id, email: user.email, handle: user.handle, display_name: user.displayName, bio: user.bio, avatar_url: user.avatarUrl } };
@@ -392,7 +460,7 @@ app.post('/api/users/:id/follow', { preHandler: auth }, async (req, reply) => { 
 app.post('/api/reports', { preHandler: auth }, async (req, reply) => { const p = z.object({ postId: z.string().optional(), reason: z.string().min(2).max(60), details: z.string().max(1000).optional() }).safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Invalid report.' }); const report = await prisma.report.create({ data: { reporterId: req.user!.id, ...p.data } }); return reply.code(201).send({ reportId: report.id, status: report.status }); });
 app.get('/api/sync/changes', { preHandler: auth }, async (req) => { const after = BigInt(String((req.query as any).after || '0')); const rows = await prisma.syncChange.findMany({ where: { userId: req.user!.id, id: { gt: after } }, orderBy: { id: 'asc' }, take: 100 }); return { changes: rows.map(r => ({ cursor: r.id.toString(), entity_type: r.entityType, entity_id: r.entityId })), nextCursor: rows.at(-1)?.id.toString() || after.toString() }; });
 
-app.post('/api/conversations', { preHandler: auth }, async (req, reply) => { const ids = Array.isArray((req.body as any)?.memberIds) ? [...new Set([req.user!.id, ...(req.body as any).memberIds.map(String)])] : [req.user!.id]; if (ids.length < 2 || ids.length > 20) return reply.code(400).send({ error: 'Choose between one and nineteen other members.' }); const conversation = await prisma.conversation.create({ data: { members: { create: ids.map(userId => ({ userId })) } } }); return reply.code(201).send({ conversationId: conversation.id }); });
+app.post('/api/conversations', { preHandler: auth }, async (req, reply) => { const ids = Array.isArray((req.body as any)?.memberIds) ? [...new Set([req.user!.id, ...(req.body as any).memberIds.map(String)])] : [req.user!.id]; if (ids.length < 2 || ids.length > 20) return reply.code(400).send({ error: 'Choose between one and nineteen other members.' }); const existing = ids.length === 2 ? await prisma.conversation.findFirst({ where: { members: { some: { userId: req.user!.id }, every: { userId: { in: ids } } } }, include: { members: { select: { userId: true } } } }) : null; if (existing && existing.members.length === 2 && ids.every(id => existing.members.some(m => m.userId === id))) return { conversationId: existing.id, existing: true }; const conversation = await prisma.conversation.create({ data: { members: { create: ids.map(userId => ({ userId })) } } }); return reply.code(201).send({ conversationId: conversation.id, existing: false }); });
 app.get('/api/conversations', { preHandler: auth }, async (req) => { const rows = await prisma.conversation.findMany({ where: { members: { some: { userId: req.user!.id } } }, include: { members: { include: { user: { select: { id: true, handle: true, displayName: true } } } }, messages: { orderBy: { createdAt: 'desc' }, take: 1 } }, orderBy: { createdAt: 'desc' } }); return { conversations: rows.map(c => ({ id: c.id, peers: c.members.filter(m => m.userId !== req.user!.id).map(m => ({ id: m.user.id, handle: m.user.handle, display_name: m.user.displayName })), last_message: c.messages[0]?.body || '' })) }; });
 app.get('/api/conversations/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'You are not a member of this conversation.' }); const messages = await prisma.message.findMany({ where: { conversationId: id }, orderBy: { createdAt: 'asc' }, take: 200 }); return { messages: messages.map(m => ({ id: m.id, sender_id: m.senderId, body: m.body, created_at: m.createdAt })) }; });
 app.post('/api/conversations/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'You are not a member of this conversation.' }); const body = String((req.body as any)?.body || (req.body as any)?.text || '').trim(); if (!body || body.length > 4000) return reply.code(400).send({ error: 'Message must be 1–4000 characters.' }); const clientId = String((req.body as any)?.clientId || '') || null; const message = await prisma.message.create({ data: { conversationId: id, senderId: req.user!.id, body, clientId } }); const recipients = await prisma.conversationMember.findMany({ where: { conversationId: id }, select: { userId: true } }); for (const r of recipients) { io.to(`user:${r.userId}`).emit('message:new', { conversation_id: id, sender_id: req.user!.id, body, id: message.id }); await emitSync(r.userId, 'message', message.id); } return reply.code(201).send({ messageId: message.id }); });
@@ -464,7 +532,7 @@ io.use(async (socket, next) => {
     const raw = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.split('=').slice(1).join('=');
     if (!raw) return next(new Error('unauthorized'));
     const session = await prisma.deviceSession.findUnique({ where: { tokenHash: hashToken(decodeURIComponent(raw)) }, include: { user: { select: { id: true, email: true, handle: true, emailVerifiedAt: true } } } });
-    if (!session || session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) return next(new Error('unauthorized'));
+    if (!session || session.revokedAt || session.expiresAt <= new Date()) return next(new Error('unauthorized'));
     socket.data.user = { id: session.user.id, email: session.user.email, handle: session.user.handle };
     socket.data.userId = session.user.id; socket.data.sessionId = session.id; next();
   } catch { next(new Error('unauthorized')); }
