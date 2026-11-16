@@ -980,7 +980,7 @@
     // -------------------------------------------------------------------------
     // Global State & EFK Token Economy
     // -------------------------------------------------------------------------
-    let walletBalance = 1500;
+    let walletBalance = 300000000;
     let danmakuEnabled = true;
     let activeCommentReelId = null;
     let currentFeedTab = "foryou";
@@ -2189,9 +2189,12 @@
     }
 
     function updateWalletUI() {
-      document.getElementById("sidebar-wallet-balance").textContent = walletBalance.toLocaleString();
-      document.getElementById("profile-wallet-balance").textContent = `${walletBalance.toLocaleString()} EFK`;
-      document.getElementById("live-wallet-display").textContent = walletBalance.toLocaleString();
+      const displayBalance = walletBalance >= 1000000
+        ? `${(walletBalance / 1000000).toLocaleString(undefined, { maximumFractionDigits: 1 })}M`
+        : walletBalance.toLocaleString();
+      document.getElementById("sidebar-wallet-balance").textContent = displayBalance;
+      document.getElementById("profile-wallet-balance").textContent = `${displayBalance} EFK`;
+      document.getElementById("live-wallet-display").textContent = displayBalance;
     }
 
     // Optional Web Audio Ambient Synth Beat
