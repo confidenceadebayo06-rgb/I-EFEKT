@@ -38,7 +38,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '../public');
 const mailer = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'localhost', port: Number(process.env.SMTP_PORT || 1025),
-  secure: false,
+  secure: false, requireTLS: Number(process.env.SMTP_PORT || 1025) === 587,
   ...(process.env.SMTP_USER ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' } } : {})
 });
 
@@ -160,20 +160,10 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
 registerProfileRoutes(app, prisma, auth, emitSync);
 registerCircleRoutes(app, prisma, auth, emitSync);
 const sendMail = async (to: string, subject: string, html: string) => {
-  const resendApiKey = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
-  const from = process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>';
-  if (resendApiKey) {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, html })
-    });
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`Resend API returned ${response.status}: ${detail.slice(0, 500)}`);
-    }
-    return;
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    throw new Error('SMTP_HOST, SMTP_USER, and SMTP_PASS must be configured to send email.');
   }
+  const from = process.env.EMAIL_FROM || process.env.SMTP_USER;
   await mailer.sendMail({ from, to, subject, html });
 };
 
