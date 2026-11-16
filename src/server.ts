@@ -8,7 +8,6 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { Redis } from 'ioredis';
 import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createCipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
@@ -36,11 +35,7 @@ const origin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const cookieName = 'iefekt_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '../public');
-const mailer = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'localhost', port: Number(process.env.SMTP_PORT || 1025),
-  secure: false, requireTLS: Number(process.env.SMTP_PORT || 1025) === 587,
-  ...(process.env.SMTP_USER ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' } } : {})
-});
+
 
 type SessionUser = { id: string; email: string; handle: string; sessionId: string };
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
@@ -160,11 +155,58 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
 registerProfileRoutes(app, prisma, auth, emitSync);
 registerCircleRoutes(app, prisma, auth, emitSync);
 const sendMail = async (to: string, subject: string, html: string) => {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    throw new Error('SMTP_HOST, SMTP_USER, and SMTP_PASS must be configured to send email.');
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  const gmailUser = process.env.GMAIL_USER;
+  if (!clientId || !clientSecret || !refreshToken || !gmailUser) {
+    throw new Error('Gmail API credentials are not fully configured.');
   }
-  const from = process.env.EMAIL_FROM || process.env.SMTP_USER;
-  await mailer.sendMail({ from, to, subject, html });
+
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token'
+    }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!tokenResponse.ok) {
+    app.log.error({ status: tokenResponse.status }, 'Gmail OAuth token refresh failed');
+    throw new Error('Gmail authorization failed.');
+  }
+  const tokenData = await tokenResponse.json() as { access_token?: string };
+  if (!tokenData.access_token) throw new Error('Gmail authorization returned no access token.');
+
+  const from = (process.env.EMAIL_FROM || gmailUser).replace(/[\\r\\n]/g, '');
+  const safeTo = to.replace(/[\\r\\n]/g, '');
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;
+  const encodedHtml = Buffer.from(html, 'utf8').toString('base64').match(/.{1,76}/g)?.join('\\r\\n') || '';
+  const mimeMessage = [
+    `From: ${from}`,
+    `To: ${safeTo}`,
+    `Subject: ${encodedSubject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    encodedHtml
+  ].join('\\r\\n');
+  const raw = Buffer.from(mimeMessage, 'utf8').toString('base64url');
+
+  const sendResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!sendResponse.ok) {
+    app.log.error({ status: sendResponse.status }, 'Gmail API message send failed');
+    throw new Error('Gmail API email delivery failed.');
+  }
 };
 
 
