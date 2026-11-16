@@ -103,9 +103,9 @@ export function registerCircleRoutes(
     if (!membership && !isLegacyOwner && circle.visibility !== 'DISCOVERABLE') return reply.code(404).send({ error: 'Circle not found.' });
     return {
       circle,
-      membership: membership
-        ? { role: membership.role, status: membership.status }
-        : isLegacyOwner ? { role: 'OWNER', status: 'ACTIVE' } : null
+      membership: isLegacyOwner
+        ? { role: 'OWNER', status: 'ACTIVE' }
+        : membership ? { role: membership.role, status: membership.status } : null
     };
   });
 
