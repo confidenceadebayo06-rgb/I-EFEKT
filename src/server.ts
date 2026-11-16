@@ -283,7 +283,7 @@ app.post('/api/auth/resend-verification', async (req, reply) => {
   try {
     await sendMail(user.email, 'Verify your I-EFEKT email', `<p>Here is your new I-EFEKT verification link.</p><p><a href="${verifyUrl}">Verify your email address</a></p><p>This link expires in 24 hours. Any older verification link is no longer valid.</p>`);
   } catch (error) {
-    req.log.error({ error }, 'Verification email resend failed');
+    req.log.error({ errorType: error instanceof Error ? error.name : typeof error, errorMessage: error instanceof Error ? error.message : String(error) }, 'Verification email resend failed');
     return reply.code(503).send({ error: 'We could not send the verification email. Please try again later.' });
   }
   return { message: genericMessage };
