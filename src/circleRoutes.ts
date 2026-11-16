@@ -63,6 +63,7 @@ export function registerCircleRoutes(
       where: {
         OR: [
           { visibility: 'DISCOVERABLE' },
+          { ownerId: userId },
           { members: { some: { userId, status: 'ACTIVE' } } }
         ]
       },
