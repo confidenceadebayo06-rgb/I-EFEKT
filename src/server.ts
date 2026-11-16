@@ -125,7 +125,7 @@ app.addHook('preHandler', async (req, reply) => {
   if (!raw) { req.user = null; return; }
   const session = await prisma.deviceSession.findUnique({ where: { tokenHash: hashToken(raw) }, include: { user: { select: { id: true, email: true, handle: true, emailVerifiedAt: true } } } });
   if (session) {
-    if (session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) { req.user = null; reply.clearCookie(cookieName, { path: '/' }); return; }
+    if (session.revokedAt || session.expiresAt <= new Date()) { req.user = null; reply.clearCookie(cookieName, { path: '/' }); return; }
     req.user = { id: session.user.id, email: session.user.email, handle: session.user.handle, sessionId: session.id };
     if (Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) void prisma.deviceSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(error => req.log.warn({ error }, 'Session activity update failed'));
     return;
@@ -135,7 +135,7 @@ app.addHook('preHandler', async (req, reply) => {
     const legacy = jwt.verify(raw, secret) as { id?: string };
     if (!legacy.id) throw new Error('Invalid legacy session');
     const user = await prisma.user.findUnique({ where: { id: legacy.id }, select: { id: true, email: true, handle: true, emailVerifiedAt: true } });
-    if (!user?.emailVerifiedAt) throw new Error('Legacy account is not verified');
+    if (!user) throw new Error('Legacy account not found');
     const created = await createSession(user, req, reply);
     req.user = { id: user.id, email: user.email, handle: user.handle, sessionId: created.id };
     await audit(user.id, 'session.legacy_exchanged', req, created.id);
@@ -298,7 +298,7 @@ app.post('/api/auth/register', async (req, reply) => {
   const verifyUrl = `${origin}/api/auth/verify?token=${token}`;
   try { await sendMail(user.email, 'Verify your I-EFEKT email', `<p>Welcome to I-EFEKT.</p><p><a href="${verifyUrl}">Verify your email address</a></p><p>This link expires in 24 hours.</p>`); }
   catch (error) { req.log.error(error, 'Email delivery failed'); }
-  return reply.code(201).send({ message: 'Account created. Check your email for the verification link. In local development, open Mailpit at http://localhost:8025.' });
+  return reply.code(201).send({ message: 'Account created. You can now sign in. Email verification is optional.' });
 });
 app.post('/api/auth/resend-verification', async (req, reply) => {
   const parsed = z.object({ email: z.string().email().max(254) }).safeParse(req.body);
@@ -339,7 +339,6 @@ app.post('/api/auth/login', async (req, reply) => {
   if (!p.success) return reply.code(400).send({ error: 'Enter a valid email and password.' });
   const user = await prisma.user.findUnique({ where: { email: p.data.email.toLowerCase() } });
   if (!user || !(await bcrypt.compare(p.data.password, user.passwordHash))) return reply.code(401).send({ error: 'Incorrect email or password.' });
-  if (!user.emailVerifiedAt) return reply.code(403).send({ error: 'Please verify your email address before signing in.' });
   const session = await createSession(user, req, reply);
   await audit(user.id, 'auth.login', req, session.id);
   return { user: { id: user.id, email: user.email, handle: user.handle, display_name: user.displayName, bio: user.bio, avatar_url: user.avatarUrl } };
@@ -533,7 +532,7 @@ io.use(async (socket, next) => {
     const raw = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.split('=').slice(1).join('=');
     if (!raw) return next(new Error('unauthorized'));
     const session = await prisma.deviceSession.findUnique({ where: { tokenHash: hashToken(decodeURIComponent(raw)) }, include: { user: { select: { id: true, email: true, handle: true, emailVerifiedAt: true } } } });
-    if (!session || session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) return next(new Error('unauthorized'));
+    if (!session || session.revokedAt || session.expiresAt <= new Date()) return next(new Error('unauthorized'));
     socket.data.user = { id: session.user.id, email: session.user.email, handle: session.user.handle };
     socket.data.userId = session.user.id; socket.data.sessionId = session.id; next();
   } catch { next(new Error('unauthorized')); }
