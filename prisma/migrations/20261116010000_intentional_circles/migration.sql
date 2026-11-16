@@ -1,0 +1,37 @@
+ALTER TABLE `SocialGroup`
+  ADD COLUMN `description` VARCHAR(1000) NOT NULL DEFAULT '',
+  ADD COLUMN `purpose` VARCHAR(500) NOT NULL DEFAULT '',
+  ADD COLUMN `category` VARCHAR(40) NOT NULL DEFAULT 'GENERAL',
+  ADD COLUMN `visibility` VARCHAR(20) NOT NULL DEFAULT 'PRIVATE',
+  ADD COLUMN `joinPolicy` VARCHAR(20) NOT NULL DEFAULT 'APPROVAL',
+  ADD COLUMN `maxMembers` INTEGER NOT NULL DEFAULT 12,
+  ADD COLUMN `rules` VARCHAR(2000) NOT NULL DEFAULT '',
+  ADD COLUMN `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);
+ALTER TABLE `GroupMember`
+  ADD COLUMN `role` VARCHAR(20) NOT NULL DEFAULT 'MEMBER',
+  ADD COLUMN `status` VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  ADD COLUMN `joinedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  ADD INDEX `GroupMember_userId_status_idx` (`userId`, `status`);
+CREATE TABLE `CircleGoal` (
+  `id` VARCHAR(191) NOT NULL, `groupId` VARCHAR(191) NOT NULL, `creatorId` VARCHAR(191) NOT NULL,
+  `title` VARCHAR(120) NOT NULL, `description` VARCHAR(1000) NOT NULL DEFAULT '', `status` VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  `dueAt` DATETIME(3) NULL, `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), `updatedAt` DATETIME(3) NOT NULL,
+  INDEX `CircleGoal_groupId_status_idx` (`groupId`, `status`), PRIMARY KEY (`id`),
+  CONSTRAINT `CircleGoal_groupId_fkey` FOREIGN KEY (`groupId`) REFERENCES `SocialGroup`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `CircleGoal_creatorId_fkey` FOREIGN KEY (`creatorId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci ENGINE=InnoDB;
+CREATE TABLE `CircleUpdate` (
+  `id` VARCHAR(191) NOT NULL, `groupId` VARCHAR(191) NOT NULL, `authorId` VARCHAR(191) NOT NULL,
+  `body` VARCHAR(2000) NOT NULL, `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  INDEX `CircleUpdate_groupId_createdAt_idx` (`groupId`, `createdAt`), PRIMARY KEY (`id`),
+  CONSTRAINT `CircleUpdate_groupId_fkey` FOREIGN KEY (`groupId`) REFERENCES `SocialGroup`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `CircleUpdate_authorId_fkey` FOREIGN KEY (`authorId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci ENGINE=InnoDB;
+CREATE TABLE `CircleSupportRequest` (
+  `id` VARCHAR(191) NOT NULL, `groupId` VARCHAR(191) NOT NULL, `requesterId` VARCHAR(191) NOT NULL,
+  `title` VARCHAR(120) NOT NULL, `description` VARCHAR(1000) NOT NULL DEFAULT '', `status` VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), `updatedAt` DATETIME(3) NOT NULL,
+  INDEX `CircleSupportRequest_groupId_status_createdAt_idx` (`groupId`, `status`, `createdAt`), PRIMARY KEY (`id`),
+  CONSTRAINT `CircleSupportRequest_groupId_fkey` FOREIGN KEY (`groupId`) REFERENCES `SocialGroup`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `CircleSupportRequest_requesterId_fkey` FOREIGN KEY (`requesterId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci ENGINE=InnoDB;
