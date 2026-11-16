@@ -42,7 +42,7 @@ test('Circle membership, approval, collaboration and privacy are enforced', asyn
       const user = await prisma.user.create({ data: {
         email: `circle-${role}-${suffix}@example.invalid`,
         passwordHash: 'test-only-not-a-login-hash',
-        handle: `circle_${role}_${suffix.replace(/-/g, '').slice(0, 12)}`,
+        handle: `c_${role}_${suffix.replace(/-/g, '').slice(0, 8)}`,
         displayName: `Circle ${role}`,
         emailVerifiedAt: new Date()
       } });
