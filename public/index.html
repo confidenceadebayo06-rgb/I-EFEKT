@@ -2320,22 +2320,33 @@
     activeCircleId=id;const panel=document.getElementById('intentional-circle-detail');if(!panel)return;
     panel.innerHTML='<p class="text-sm text-slate-400">Loading Circle…</p>';
     try{
-      const [detail,goals,updates,support]=await Promise.all([
-        apiRequest('/circles/'+encodeURIComponent(id)),
-        apiRequest('/circles/'+encodeURIComponent(id)+'/goals').catch(()=>({goals:[]})),
-        apiRequest('/circles/'+encodeURIComponent(id)+'/updates').catch(()=>({updates:[]})),
-        apiRequest('/circles/'+encodeURIComponent(id)+'/support').catch(()=>({requests:[]}))
-      ]);
+      const detail=await apiRequest('/circles/'+encodeURIComponent(id));
       const circle=detail.circle,membership=detail.membership;
-      const canSee=!!membership;
+      const isCircleManager=membership?.status==='ACTIVE'&&['OWNER','FACILITATOR'].includes(membership?.role);
+      const [goals,updates,support,pending]=await Promise.all([
+        membership?.status==='ACTIVE'?apiRequest('/circles/'+encodeURIComponent(id)+'/goals').catch(()=>({goals:[]})):Promise.resolve({goals:[]}),
+        membership?.status==='ACTIVE'?apiRequest('/circles/'+encodeURIComponent(id)+'/updates').catch(()=>({updates:[]})):Promise.resolve({updates:[]}),
+        membership?.status==='ACTIVE'?apiRequest('/circles/'+encodeURIComponent(id)+'/support').catch(()=>({requests:[]})):Promise.resolve({requests:[]}),
+        isCircleManager?apiRequest('/circles/'+encodeURIComponent(id)+'/pending').catch(()=>({requests:[]})):Promise.resolve({requests:[]})
+      ]);
+      const canSee=membership?.status==='ACTIVE';
       panel.innerHTML=`<section class="rounded-2xl border border-efekt-cyan/30 bg-slate-900 p-4 space-y-4">
         <div><p class="text-[10px] uppercase tracking-widest text-efekt-cyan">Intentional Circle</p><h3 class="text-xl font-black">${socialEsc(circle.name)}</h3><p class="text-sm text-slate-300 mt-1">${socialEsc(circle.purpose||circle.description||'A place to make progress together.')}</p><p class="text-xs text-slate-500 mt-2">${circle._count?.members||0} members · ${socialEsc(circle.visibility)}</p></div>
+        ${isCircleManager ? '<div class="rounded-xl border border-amber-400/20 bg-amber-500/5 p-3"><div class="flex items-center justify-between gap-2 mb-2"><b>Pending join requests</b><span class="rounded-full bg-amber-400/15 px-2 py-1 text-[10px] text-amber-200">'+(pending.requests||[]).length+' pending</span></div>'+((pending.requests||[]).map(r=>'<div class="flex items-center justify-between gap-3 border-t border-white/10 py-2"><div class="min-w-0"><b class="text-sm">'+socialEsc(r.user.displayName||r.user.handle)+'</b><p class="text-xs text-slate-400">@'+socialEsc(r.user.handle)+'</p></div><button onclick="approveCircleJoinRequest(\''+socialEsc(id)+'\',\''+socialEsc(r.userId)+'\')" class="shrink-0 rounded-lg bg-efekt-cyan px-3 py-2 text-xs font-bold text-slate-950">Approve</button></div>').join('')||'<p class="text-xs text-slate-400">No pending join requests.</p>')+'</div>' : ''}
         ${membership?.status==='PENDING'?'<p class="rounded-xl bg-amber-500/10 p-3 text-sm text-amber-200">Your request is waiting for Circle approval.</p>':!membership?'<button onclick="joinIntentionalCircle(\''+socialEsc(id)+'\')" class="rounded-xl bg-efekt-cyan px-4 py-2 font-bold text-slate-950">Request to join / Join</button>':`<div class="grid md:grid-cols-2 gap-3">
           <div class="rounded-xl bg-slate-950 p-3"><b>Shared goals</b><div class="space-y-2 my-2">${(goals.goals||[]).map(g=>`<div class="text-xs border-b border-white/10 pb-2">${socialEsc(g.title)} · ${socialEsc(g.status)}</div>`).join('')||'<p class="text-xs text-slate-500">No shared goals yet.</p>'}</div><form onsubmit="addCircleGoal(event)" class="space-y-2"><input id="circle-goal-title" required maxlength="120" placeholder="Add a shared goal" class="w-full rounded-lg bg-slate-900 p-2 text-sm"><button class="rounded-lg bg-white/10 px-3 py-2 text-xs">Add goal</button></form></div>
           <div class="rounded-xl bg-slate-950 p-3"><b>Ask for support</b><div class="space-y-2 my-2">${(support.requests||[]).map(x=>`<div class="text-xs border-b border-white/10 pb-2">${socialEsc(x.title)} <span class="text-slate-500">· ${socialEsc(x.status)}</span></div>`).join('')||'<p class="text-xs text-slate-500">No open requests.</p>'}</div><form onsubmit="addCircleSupport(event)" class="space-y-2"><input id="circle-support-title" required maxlength="120" placeholder="What help do you need?" class="w-full rounded-lg bg-slate-900 p-2 text-sm"><textarea id="circle-support-description" maxlength="1000" placeholder="Add context (optional)" class="w-full rounded-lg bg-slate-900 p-2 text-sm"></textarea><button class="rounded-lg bg-white/10 px-3 py-2 text-xs">Post request</button></form></div>
         </div><div class="rounded-xl bg-slate-950 p-3"><b>Progress updates</b><div class="space-y-2 my-2">${(updates.updates||[]).map(x=>`<p class="text-xs border-b border-white/10 pb-2">${socialEsc(x.body)}</p>`).join('')||'<p class="text-xs text-slate-500">Share a small win or progress update.</p>'}</div><form onsubmit="addCircleUpdate(event)" class="flex gap-2"><input id="circle-update-body" required maxlength="2000" placeholder="Share your progress" class="min-w-0 flex-1 rounded-lg bg-slate-900 p-2 text-sm"><button class="rounded-lg bg-efekt-cyan px-3 py-2 text-xs font-bold text-slate-950">Post</button></form></div><button onclick="leaveIntentionalCircle('${socialEsc(id)}')" class="text-xs text-rose-300 underline">Leave Circle</button>`}
       </section>`;
     }catch(error){panel.innerHTML='<p class="text-sm text-rose-300">'+socialEsc(error.message)+'</p>';}
+  }
+  async function approveCircleJoinRequest(circleId,userId){
+    try{
+      await apiRequest('/circles/'+encodeURIComponent(circleId)+'/members/'+encodeURIComponent(userId)+'/approve',{method:'POST',body:JSON.stringify({})});
+      showToast('Join request approved.');
+      await openIntentionalCircle(circleId);
+      await loadIntentionalCircles();
+    }catch(error){showToast(error.message||'Could not approve this request.');}
   }
   async function addCircleGoal(event){event.preventDefault();if(!activeCircleId)return;try{await apiRequest('/circles/'+encodeURIComponent(activeCircleId)+'/goals',{method:'POST',body:JSON.stringify({title:document.getElementById('circle-goal-title').value.trim()})});await openIntentionalCircle(activeCircleId);showToast('Shared goal added.');}catch(e){showToast(e.message);}}
   async function addCircleSupport(event){event.preventDefault();if(!activeCircleId)return;try{await apiRequest('/circles/'+encodeURIComponent(activeCircleId)+'/support',{method:'POST',body:JSON.stringify({title:document.getElementById('circle-support-title').value.trim(),description:document.getElementById('circle-support-description').value.trim()})});await openIntentionalCircle(activeCircleId);showToast('Support request posted.');}catch(e){showToast(e.message);}}
