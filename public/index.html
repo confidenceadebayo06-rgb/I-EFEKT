@@ -677,6 +677,51 @@
           </div>
         </div>
 
+        <!-- Human Potential Profile: private-by-default skills, goals and collaboration intents -->
+        <section class="glass rounded-3xl p-5 space-y-4 border border-efekt-purple/25" aria-labelledby="potential-profile-title">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div><h3 id="potential-profile-title" class="font-display text-lg font-bold">Your Human Potential</h3><p class="text-xs text-slate-400">Show what you know, what you are building, and how people can work with you.</p></div>
+            <span class="text-[10px] rounded-full bg-efekt-cyan/10 text-efekt-cyan px-2 py-1">Private by default</span>
+          </div>
+          <div id="potential-profile-status" class="text-xs text-slate-400" aria-live="polite">Sign in to manage your skills, goals and offers.</div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <form onsubmit="savePotentialItem(event,'skills')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">Skills & abilities</h4>
+              <input id="potential-skill-name" required maxlength="80" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="e.g. Graphic design">
+              <input id="potential-skill-description" maxlength="500" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="How you use this skill (optional)">
+              <div class="grid grid-cols-2 gap-2"><select id="potential-skill-level" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option>BEGINNER</option><option>INTERMEDIATE</option><option>ADVANCED</option><option>EXPERT</option></select><select id="potential-skill-visibility" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select></div>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Add skill</button>
+              <div id="potential-skills-list" class="space-y-2 text-xs"></div>
+            </form>
+            <form onsubmit="savePotentialItem(event,'goals')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">Goals & direction</h4>
+              <input id="potential-goal-title" required maxlength="120" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="What are you working towards?">
+              <textarea id="potential-goal-description" maxlength="1000" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Your next practical step (optional)"></textarea>
+              <div class="grid grid-cols-2 gap-2"><select id="potential-goal-category" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PERSONAL">Personal</option><option value="CAREER">Career</option><option value="BUSINESS">Business</option><option value="LEARNING">Learning</option><option value="COMMUNITY">Community</option></select><select id="potential-goal-visibility" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select></div>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Add goal</button>
+              <div id="potential-goals-list" class="space-y-2 text-xs"></div>
+            </form>
+            <form onsubmit="savePotentialItem(event,'interests')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">Interests</h4>
+              <input id="potential-interest-name" required maxlength="80" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="What topics or fields interest you?">
+              <input id="potential-interest-category" maxlength="40" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Category (optional)">
+              <select id="potential-interest-visibility" class="w-full rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Add interest</button>
+              <div id="potential-interests-list" class="space-y-2 text-xs"></div>
+            </form>
+            <form onsubmit="savePotentialItem(event,'intents')" class="rounded-2xl bg-black/20 p-4 space-y-2">
+              <h4 class="text-sm font-bold text-efekt-cyan">What you offer or need</h4>
+              <select id="potential-intent-type" class="w-full rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="OFFER">I can offer</option><option value="SEEK">I am looking for</option></select>
+              <input id="potential-intent-title" required maxlength="120" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="e.g. I can mentor beginners / seeking a co-founder">
+              <textarea id="potential-intent-description" maxlength="1000" class="w-full rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Add useful details (optional)"></textarea>
+              <div class="grid grid-cols-2 gap-2"><input id="potential-intent-category" maxlength="40" class="min-w-0 rounded-xl bg-black/40 border border-white/10 p-2 text-xs" placeholder="Category"><select id="potential-intent-visibility" class="min-w-0 rounded-xl bg-slate-900 border border-white/10 p-2 text-xs"><option value="PRIVATE">Only me</option><option value="PUBLIC">Public profile</option><option value="CIRCLES">Circles (when enabled)</option></select></div>
+              <button class="rounded-xl bg-efekt-cyan text-black px-3 py-2 text-xs font-bold">Save offer / request</button>
+              <div id="potential-intents-list" class="space-y-2 text-xs"></div>
+            </form>
+          </div>
+          <p class="text-[10px] text-slate-500">Your information starts private. Public items are visible on your profile only when you choose Public. Circle-only sharing is stored but not displayed until Circle membership permissions are available.</p>
+        </section>
+
         <!-- Profile Sub-Tabs (Published vs Saved Reels) -->
         <div class="flex items-center gap-4 border-b border-white/10 pb-2 text-xs font-bold">
           <button onclick="setProfileTab('published')" id="prof-tab-published" class="text-efekt-cyan border-b-2 border-efekt-cyan pb-2 -mb-2.5">
@@ -2040,6 +2085,43 @@
     // -------------------------------------------------------------------------
     // PROFILE, WALLET & WEB AUDIO AMBIENT SYNTH
     // -------------------------------------------------------------------------
+    // Human Potential Profile: server-backed, private-by-default profile data.
+    let potentialProfileCache = { skills: [], goals: [], interests: [], intents: [] };
+    async function loadPotentialProfile() {
+      const status = document.getElementById('potential-profile-status');
+      if (!signedInUser) { status.textContent = 'Sign in to manage your skills, goals and offers.'; ['skills','goals','interests','intents'].forEach(k => { const el=document.getElementById('potential-'+k+'-list'); if(el)el.textContent='Your saved items will appear here after sign-in.'; }); return; }
+      status.textContent = 'Loading your profile information…';
+      try { potentialProfileCache = await apiRequest('/me/profile'); renderPotentialProfile(); status.textContent = 'Your profile information is saved to your I-EFEKT account.'; }
+      catch (error) { status.textContent = error.message; }
+    }
+    function renderPotentialProfile() {
+      const labels = { skills: item => item.name + ' · ' + item.experienceLevel, goals: item => item.title + ' · ' + item.status, interests: item => item.name, intents: item => (item.type === 'OFFER' ? 'Offer: ' : 'Seeking: ') + item.title };
+      ['skills','goals','interests','intents'].forEach(kind => {
+        const el = document.getElementById('potential-'+kind+'-list');
+        const rows = potentialProfileCache[kind] || [];
+        el.innerHTML = rows.length ? rows.map(item => '<div class="flex items-start justify-between gap-2 rounded-lg bg-white/5 p-2"><div class="min-w-0"><div class="font-semibold break-words">'+escapeHtml(labels[kind](item))+'</div><div class="text-[10px] text-slate-400">'+escapeHtml(item.description || item.category || '')+'</div><div class="text-[9px] text-efekt-cyan mt-1">'+escapeHtml(item.visibility || 'PRIVATE')+'</div></div><button type="button" class="text-efekt-pink shrink-0" aria-label="Delete item" onclick="deletePotentialItem(\''+kind+'\',\''+escapeHtml(item.id)+'\')">Delete</button></div>').join('') : '<p class="text-[10px] text-slate-500">Nothing added yet.</p>';
+      });
+    }
+    async function savePotentialItem(event, kind) {
+      event.preventDefault();
+      if (!signedInUser) { openAuthPanel(); return showToast('Sign in to save your profile information.'); }
+      const value = id => document.getElementById(id).value.trim();
+      const visibility = value('potential-'+(kind==='intents'?'intent':kind.slice(0,-1))+'-visibility') || 'PRIVATE';
+      let payload, path;
+      if (kind === 'skills') { payload={name:value('potential-skill-name'),description:value('potential-skill-description'),experienceLevel:value('potential-skill-level'),visibility}; path='/me/skills'; }
+      else if (kind === 'goals') { payload={title:value('potential-goal-title'),description:value('potential-goal-description'),category:value('potential-goal-category'),visibility}; path='/me/goals'; }
+      else if (kind === 'interests') { payload={name:value('potential-interest-name'),category:value('potential-interest-category')||'GENERAL',visibility}; path='/me/interests'; }
+      else { payload={type:value('potential-intent-type'),title:value('potential-intent-title'),description:value('potential-intent-description'),category:value('potential-intent-category')||'GENERAL',visibility}; path='/me/intents'; }
+      try { await apiRequest(path,{method:'POST',body:JSON.stringify(payload)}); event.target.reset(); await loadPotentialProfile(); showToast('Saved to your profile.'); }
+      catch(error) { showToast(error.message); }
+    }
+    async function deletePotentialItem(kind, id) {
+      if (!signedInUser || !['skills','goals','interests','intents'].includes(kind)) return;
+      if (!confirm('Delete this item from your profile?')) return;
+      try { await apiRequest('/me/'+kind+'/'+encodeURIComponent(id),{method:'DELETE'}); await loadPotentialProfile(); showToast('Profile item deleted.'); }
+      catch(error) { showToast(error.message); }
+    }
+
     function renderProfileGrids() {
       const published = reelsData;
       const saved = reelsData.filter(r => r.saved);
@@ -2155,7 +2237,7 @@
         }
       });
 
-      if (viewName === "profile") renderProfileGrids();
+      if (viewName === "profile") { renderProfileGrids(); loadPotentialProfile(); }
     }
 
     function setFeedTab(tab) {
