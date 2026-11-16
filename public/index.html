@@ -511,46 +511,19 @@
     <!-- =================================================================== -->
     <section id="view-messages" class="view-section hidden h-full overflow-hidden p-4 md:p-8 pb-20">
       <div class="max-w-5xl mx-auto h-full glass rounded-3xl overflow-hidden grid grid-cols-1 md:grid-cols-3">
-        <!-- Conversations List -->
-        <div class="border-r border-white/10 p-4 space-y-3 overflow-y-auto">
-          <div class="flex items-center justify-between">
-            <h2 class="font-display text-lg font-bold">Collab Inbox</h2>
-            <span class="text-[10px] bg-efekt-cyan/15 text-efekt-cyan px-2 py-0.5 rounded-full font-bold">3 Active</span>
-          </div>
-          <div id="dm-threads" class="space-y-2">
-            <!-- Populated via JS -->
-          </div>
+        <!-- Honest messaging availability state -->
+        <div class="border-r border-white/10 p-4 space-y-3">
+          <h2 class="font-display text-lg font-bold">Direct Inbox</h2>
+          <p class="text-xs text-slate-400">Your conversations will appear here once live messaging is connected.</p>
+          <div id="dm-threads" class="rounded-2xl border border-white/10 bg-white/[.03] p-4 text-xs text-slate-400">No conversations to show yet.</div>
         </div>
 
-        <!-- Active Chat Window -->
-        <div class="md:col-span-2 flex flex-col justify-between bg-efekt-bg/70">
-          <div class="p-4 border-b border-white/10 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <img id="dm-active-avatar" src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=200&q=80" onerror="this.src='https://placehold.co/150x150/1e293b/ffffff?text=CO'" class="w-9 h-9 rounded-full object-cover border border-efekt-cyan" />
-              <div>
-                <h4 id="dm-active-name" class="text-sm font-bold">@chiamaka_o</h4>
-                <span class="text-[10px] text-efekt-cyan">● Online • Open for Duets</span>
-              </div>
-            </div>
-            <button onclick="sendCollabInviteCard()" class="px-3 py-1.5 rounded-xl bg-efekt-purple/25 hover:bg-efekt-purple/35 text-efekt-purple border border-efekt-purple/40 text-xs font-bold transition-all">
-              <i class="fa-solid fa-clapperboard mr-1"></i> Send Reel Collab
-            </button>
-          </div>
-
-          <div id="dm-messages-area" class="flex-1 p-4 overflow-y-auto space-y-3 text-xs">
-            <!-- Populated via JS -->
-          </div>
-
-          <!-- Message & Voice Note Bar -->
-          <form onsubmit="sendDirectMessage(event)" class="p-3 border-t border-white/10 flex items-center gap-2">
-            <button type="button" onclick="sendSimulatedVoiceNote()" title="Send Voice Note" class="w-10 h-10 rounded-xl bg-efekt-pink/20 hover:bg-efekt-pink/30 text-efekt-pink flex items-center justify-center shrink-0 transition-colors">
-              <i class="fa-solid fa-microphone"></i>
-            </button>
-            <input id="dm-input" type="text" placeholder="Type a message or paste an Efekt link..." class="flex-1 bg-efekt-card rounded-xl px-4 py-2.5 text-xs focus:outline-none border border-white/10 focus:border-efekt-cyan" />
-            <button type="submit" class="px-4 py-2.5 rounded-xl neon-gradient text-black font-bold text-xs">
-              <i class="fa-solid fa-paper-plane"></i>
-            </button>
-          </form>
+        <!-- Honest chat and voice availability state -->
+        <div class="md:col-span-2 flex flex-col justify-center items-center text-center gap-3 p-6 bg-efekt-bg/70">
+          <div class="w-14 h-14 rounded-2xl bg-efekt-cyan/10 text-efekt-cyan flex items-center justify-center text-2xl"><i class="fa-solid fa-comments"></i></div>
+          <h3 class="font-bold text-lg">Direct messages & voice notes</h3>
+          <p class="max-w-md text-sm text-slate-300">Live one-to-one messaging and voice-note delivery are not connected yet. Messages and recordings cannot currently be sent or received.</p>
+          <span class="text-[10px] rounded-full border border-amber-400/30 bg-amber-400/10 text-amber-200 px-3 py-1 font-bold">Messaging and voice unavailable</span>
         </div>
       </div>
     </section>
@@ -1929,61 +1902,22 @@
     // -------------------------------------------------------------------------
     // DIRECT MESSAGING & VOICE NOTES
     // -------------------------------------------------------------------------
-    const dmContacts = [
-      { name: "@chiamaka_o", time: "2m", preview: "Ready to record our acoustic Duet!", avatar: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=200&q=80" },
-      { name: "@tunde.ade", time: "28m", preview: "Sent you the raw street photos from Lekki", avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=200&q=80" },
-      { name: "@sara_kline", time: "2h", preview: "Thanks for the 25 EFK tip 🙌", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80" },
-      { name: "@david.mensah", time: "5h", preview: "Let's collab on a weekend vlog soon", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80" }
-    ];
-
     function renderDMs() {
-      document.getElementById("dm-threads").innerHTML = dmContacts.map(c => `
-        <div onclick="openDMChat('${c.name}', '${c.avatar}', '${c.preview}')" class="p-3 rounded-2xl bg-white/5 hover:bg-white/10 cursor-pointer flex items-center gap-3 transition-colors">
-          <img src="${c.avatar}" onerror="this.src='https://placehold.co/150x150/1e293b/ffffff?text=${encodeURIComponent(c.name[1].toUpperCase())}'" class="w-10 h-10 rounded-full object-cover" />
-          <div class="flex-1 min-w-0">
-            <div class="flex justify-between items-center">
-              <h5 class="font-bold text-xs text-white truncate">${c.name}</h5>
-              <span class="text-[10px] text-slate-500">${c.time}</span>
-            </div>
-            <p class="text-[11px] text-slate-400 truncate">${c.preview}</p>
-          </div>
-        </div>
-      `).join("");
-
-      openDMChat(dmContacts[0].name, dmContacts[0].avatar, dmContacts[0].preview);
+      const threads = document.getElementById("dm-threads");
+      if (threads) threads.textContent = "No conversations to show yet.";
     }
 
-    function openDMChat(name, avatar, initialMsg) {
-      document.getElementById("dm-active-name").textContent = name;
-      document.getElementById("dm-active-avatar").src = avatar;
-      document.getElementById("dm-messages-area").innerHTML = `
-        <div class="bg-efekt-card p-3 rounded-2xl rounded-tl-none max-w-xs border border-white/10">${initialMsg}</div>
-        <div class="bg-efekt-cyan text-black font-semibold p-3 rounded-2xl rounded-tr-none max-w-xs ml-auto">Let's lock it in! Launching split-screen studio now.</div>
-      `;
+    function openDMChat() {
+      showToast("Direct messaging is not available yet.");
     }
 
     function sendDirectMessage(e) {
-      e.preventDefault();
-      const input = document.getElementById("dm-input");
-      if (!input.value.trim()) return;
-      const area = document.getElementById("dm-messages-area");
-      area.innerHTML += `<div class="bg-efekt-cyan text-black font-semibold p-3 rounded-2xl rounded-tr-none max-w-xs ml-auto">${input.value}</div>`;
-      input.value = "";
-      area.scrollTop = area.scrollHeight;
+      if (e) e.preventDefault();
+      showToast("Messages cannot be sent yet. Live messaging is not connected.");
     }
 
     function sendSimulatedVoiceNote() {
-      const area = document.getElementById("dm-messages-area");
-      const bars = Array.from({ length: 14 }, (_, i) => `<span class="w-1 h-4 bg-black rounded-full wave-bar" style="animation-delay:${i * 0.08}s"></span>`).join("");
-      area.innerHTML += `
-        <div class="bg-efekt-cyan text-black font-bold p-3 rounded-2xl rounded-tr-none max-w-[230px] ml-auto flex items-center gap-2.5">
-          <i class="fa-solid fa-play text-xs"></i>
-          <div class="flex items-center gap-1">${bars}</div>
-          <span class="text-[10px]">0:08</span>
-        </div>
-      `;
-      area.scrollTop = area.scrollHeight;
-      showToast("Voice Note Sent! 🎙️");
+      showToast("Voice notes cannot be sent yet. Voice messaging is not connected.");
     }
 
     function sendCollabInviteCard() {
