@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
 import { startBackupScheduler } from './backupScheduler.js';
 import { registerProfileRoutes } from './profileRoutes.js';
+import { registerCircleRoutes } from './circleRoutes.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -156,6 +157,7 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
 };
 
 registerProfileRoutes(app, prisma, auth, emitSync);
+registerCircleRoutes(app, prisma, auth, emitSync);
 const sendMail = async (to: string, subject: string, html: string) => {
   await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
 };
