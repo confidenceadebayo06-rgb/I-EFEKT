@@ -119,6 +119,19 @@ export function registerCircleRoutes(
     return reply.code(status === 'ACTIVE' ? 200 : 202).send({ status, message: status === 'ACTIVE' ? 'You joined the Circle.' : 'Your request was sent to the Circle facilitators.' });
   });
 
+  app.get('/api/circles/:id/pending', { preHandler: auth }, async (request, reply) => {
+    const parsed = idParams.safeParse(request.params);
+    if (!parsed.success) return bad(reply, 'Invalid Circle ID.');
+    if (!await canManage(prisma, parsed.data.id, request.user!.id)) {
+      return reply.code(403).send({ error: 'Only Circle owners or facilitators can view pending requests.' });
+    }
+    const requests = await prisma.groupMember.findMany({
+      where: { groupId: parsed.data.id, status: 'PENDING' },
+      orderBy: { joinedAt: 'asc' },
+      select: { id: true, userId: true, joinedAt: true, user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } } }
+    });
+    return { requests };
+  });
   app.get('/api/circles/:id/members', { preHandler: auth }, async (request, reply) => {
     const parsed = idParams.safeParse(request.params);
     if (!parsed.success) return bad(reply, 'Invalid Circle ID.');
