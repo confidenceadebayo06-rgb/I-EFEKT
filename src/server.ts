@@ -160,7 +160,21 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
 registerProfileRoutes(app, prisma, auth, emitSync);
 registerCircleRoutes(app, prisma, auth, emitSync);
 const sendMail = async (to: string, subject: string, html: string) => {
-  await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
+  const resendApiKey = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
+  const from = process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>';
+  if (resendApiKey) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, subject, html })
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`Resend API returned ${response.status}: ${detail.slice(0, 500)}`);
+    }
+    return;
+  }
+  await mailer.sendMail({ from, to, subject, html });
 };
 
 
