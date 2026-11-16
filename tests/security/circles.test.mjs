@@ -10,11 +10,14 @@ async function request(path, options = {}) {
   return fetch(`${baseUrl}${path}`, {
     redirect: 'manual',
     ...options,
-    headers: { ...(options.headers || {}) }
+    headers: {
+      ...(options.headers || {}),
+      ...(typeof options.body === 'string' ? { 'content-type': 'application/json' } : {})
+    }
   });
 }
 function json(body) {
-  return { 'content-type': 'application/json', body: JSON.stringify(body) };
+  return { body: JSON.stringify(body) };
 }
 
 test('Circle discovery and collaboration endpoints require authentication', async () => {
