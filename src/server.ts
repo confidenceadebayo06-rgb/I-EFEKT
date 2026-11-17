@@ -278,9 +278,9 @@ app.get('/api/groups', { preHandler: auth }, async (req) => ({ groups: await pri
 app.get('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); return { messages: await prisma.groupMessage.findMany({ where: { groupId: id }, orderBy: { createdAt: 'asc' }, take: 200 }) }; });
 app.post('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); const body = String((req.body as any)?.body || '').trim(); if (!body || body.length > 4000) return reply.code(400).send({ error: 'Invalid message.' }); const m = await prisma.groupMessage.create({ data: { groupId: id, userId: req.user!.id, body } }); io.to(`group:${id}`).emit('group:message', m); return reply.code(201).send({ message: m }); });
 app.get('/api/calls/ice-config', { preHandler: auth }, async (req, reply) => {
-  const query = req.query as { roomId?: string };
+  const query = req.query as { roomId?: string; role?: string };
   try {
-    const config = await createIceServersForClient({ clientIp: req.ip, roomId: query.roomId, clientId: req.user!.id });
+    const config = await createIceServersForClient({ clientIp: req.ip, roomId: query.roomId, clientId: req.user!.id, role: query.role === 'receiver' ? 'receiver' : 'initiator' });
     return config;
   } catch (error) {
     req.log.error({ err: error }, 'Could not obtain TURN credentials from configured provider.');
