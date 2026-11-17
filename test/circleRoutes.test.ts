@@ -130,3 +130,28 @@ test('non-managers cannot view or approve pending Circle requests', async () => 
   } finally { await app.close(); }
 });
 
+test('Circle facilitators can view and approve pending requests', async () => {
+  const { app, members } = setup('APPROVAL');
+  members.set('circle-1:facilitator', {
+    id: 'm-facilitator', groupId: 'circle-1', userId: 'facilitator',
+    role: 'FACILITATOR', status: 'ACTIVE'
+  });
+  try {
+    const queue = await app.inject({
+      method: 'GET',
+      url: '/api/circles/circle-1/pending',
+      headers: { 'x-user': 'facilitator' }
+    });
+    assert.equal(queue.statusCode, 200);
+    assert.equal(queue.json().requests.length, 2);
+
+    const approval = await app.inject({
+      method: 'POST',
+      url: '/api/circles/circle-1/members/a/approve',
+      headers: { 'x-user': 'facilitator' }
+    });
+    assert.equal(approval.statusCode, 200);
+    assert.equal(members.get('circle-1:a')?.status, 'ACTIVE');
+  } finally { await app.close(); }
+});
+
