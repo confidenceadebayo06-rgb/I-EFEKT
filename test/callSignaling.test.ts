@@ -61,7 +61,7 @@ test('call decline notifications are sent only to the caller currently in the is
 
 test('call invitations require the sender to have joined that exact call session', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
-  assert.match(source, /joinedRooms\.get\(roomName\(raw\)\) !== raw\.roomId \|\| !\(await canJoinCall\(prisma, userId, raw\)\)/);
+  assert.match(source, /joinedRooms\.get\(room\) !== raw\.roomId \|\| !socket\.rooms\.has\(room\) \|\| !\(await canJoinCall\(prisma, userId, raw\)\)/);
 });
 
 
@@ -86,7 +86,7 @@ test('joining from a second device does not announce a duplicate call participan
 
 test('call signaling revalidates sender and recipient membership before relaying media negotiation', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
-  assert.ok(source.includes('joinedRooms.get(room) !== raw.roomId'));
+  assert.ok(source.includes('joinedRooms.get(room) !== raw.roomId || !socket.rooms.has(room)'));
   assert.ok(source.includes('if (!(await canJoinCall(prisma, userId, raw)))'));
   assert.ok(source.includes('if (await canJoinCall(prisma, targetUserId, raw)) recipients.push(peer)'));
   assert.ok(source.includes('await evictUserFromRoom(room, targetUserId)'));
