@@ -112,25 +112,35 @@ export function registerCircleRoutes(
   app.post('/api/circles/:id/join', { preHandler: auth }, async (request, reply) => {
     const parsed = idParams.safeParse(request.params);
     if (!parsed.success) return bad(reply, 'Invalid Circle ID.');
-    const circle = await prisma.socialGroup.findUnique({ where: { id: parsed.data.id } });
-    if (!circle || circle.visibility === 'PRIVATE' || circle.visibility === 'INVITE_ONLY') {
-      return reply.code(404).send({ error: 'This Circle is not open for applications.' });
+    const outcome = await prisma.$transaction(async tx => {
+      // Updating the parent row obtains a write lock held until commit. All join
+      // and approval capacity checks lock this same row, preventing overbooking.
+      await tx.socialGroup.update({ where: { id: parsed.data.id }, data: { updatedAt: new Date() } });
+      const circle = await tx.socialGroup.findUnique({ where: { id: parsed.data.id } });
+      if (!circle || circle.visibility === 'PRIVATE' || circle.visibility === 'INVITE_ONLY') return { error: 'closed' as const };
+      const existing = await tx.groupMember.findUnique({
+        where: { groupId_userId: { groupId: circle.id, userId: request.user!.id } }
+      });
+      if (existing?.status === 'ACTIVE') return { error: 'active' as const };
+      if (existing?.status === 'PENDING') return { error: 'pending' as const };
+      const count = await tx.groupMember.count({ where: { groupId: circle.id, status: 'ACTIVE' } });
+      if (count >= circle.maxMembers) return { error: 'full' as const };
+      const status = circle.joinPolicy === 'OPEN' ? 'ACTIVE' : 'PENDING';
+      await tx.groupMember.upsert({
+        where: { groupId_userId: { groupId: circle.id, userId: request.user!.id } },
+        create: { groupId: circle.id, userId: request.user!.id, role: 'MEMBER', status, joinedAt: status === 'ACTIVE' ? new Date() : undefined },
+        update: { role: 'MEMBER', status, joinedAt: status === 'ACTIVE' ? new Date() : undefined }
+      });
+      return { circleId: circle.id, status };
+    });
+    if ('error' in outcome) {
+      if (outcome.error === 'closed') return reply.code(404).send({ error: 'This Circle is not open for applications.' });
+      if (outcome.error === 'active') return reply.code(409).send({ error: 'You are already a Circle member.' });
+      if (outcome.error === 'pending') return reply.code(409).send({ error: 'Your Circle request is awaiting approval.' });
+      return reply.code(409).send({ error: 'This Circle has reached its member limit.' });
     }
-    const existing = await prisma.groupMember.findUnique({
-      where: { groupId_userId: { groupId: circle.id, userId: request.user!.id } }
-    });
-    if (existing?.status === 'ACTIVE') return reply.code(409).send({ error: 'You are already a Circle member.' });
-    if (existing?.status === 'PENDING') return reply.code(409).send({ error: 'Your Circle request is awaiting approval.' });
-    const count = await prisma.groupMember.count({ where: { groupId: circle.id, status: 'ACTIVE' } });
-    if (count >= circle.maxMembers) return reply.code(409).send({ error: 'This Circle has reached its member limit.' });
-    const status = circle.joinPolicy === 'OPEN' ? 'ACTIVE' : 'PENDING';
-    await prisma.groupMember.upsert({
-      where: { groupId_userId: { groupId: circle.id, userId: request.user!.id } },
-      create: { groupId: circle.id, userId: request.user!.id, role: 'MEMBER', status, joinedAt: status === 'ACTIVE' ? new Date() : undefined },
-      update: { role: 'MEMBER', status, joinedAt: status === 'ACTIVE' ? new Date() : undefined }
-    });
-    await emitSync(request.user!.id, 'circle_membership', circle.id);
-    return reply.code(status === 'ACTIVE' ? 200 : 202).send({ status, message: status === 'ACTIVE' ? 'You joined the Circle.' : 'Your request was sent to the Circle facilitators.' });
+    await emitSync(request.user!.id, 'circle_membership', outcome.circleId);
+    return reply.code(outcome.status === 'ACTIVE' ? 200 : 202).send({ status: outcome.status, message: outcome.status === 'ACTIVE' ? 'You joined the Circle.' : 'Your request was sent to the Circle facilitators.' });
   });
 
   app.get('/api/circles/:id/members', { preHandler: auth }, async (request, reply) => {
@@ -166,15 +176,25 @@ export function registerCircleRoutes(
     const params = z.object({ id: z.string().min(1).max(191), userId: z.string().min(1).max(191) }).safeParse(request.params);
     if (!params.success) return bad(reply, 'Invalid Circle or user ID.');
     if (!await canManage(prisma, params.data.id, request.user!.id)) return reply.code(403).send({ error: 'Only Circle owners or facilitators can approve members.' });
-    const circle = await prisma.socialGroup.findUnique({ where: { id: params.data.id } });
-    if (!circle) return reply.code(404).send({ error: 'Circle not found.' });
-    if (circle.joinPolicy !== 'APPROVAL') return reply.code(409).send({ error: 'This Circle does not require join approval.' });
-    const pending = await prisma.groupMember.findFirst({ where: { groupId: circle.id, userId: params.data.userId, status: 'PENDING' } });
-    if (!pending) return reply.code(404).send({ error: 'Pending membership request not found.' });
-    const count = await prisma.groupMember.count({ where: { groupId: circle.id, status: 'ACTIVE' } });
-    if (count >= circle.maxMembers) return reply.code(409).send({ error: 'This Circle has reached its member limit.' });
-    await prisma.groupMember.update({ where: { id: pending.id }, data: { status: 'ACTIVE', joinedAt: new Date() } });
-    await emitSync(params.data.userId, 'circle_membership', circle.id);
+    const outcome = await prisma.$transaction(async tx => {
+      await tx.socialGroup.update({ where: { id: params.data.id }, data: { updatedAt: new Date() } });
+      const circle = await tx.socialGroup.findUnique({ where: { id: params.data.id } });
+      if (!circle) return { error: 'missing' as const };
+      if (circle.joinPolicy !== 'APPROVAL') return { error: 'policy' as const };
+      const pending = await tx.groupMember.findFirst({ where: { groupId: circle.id, userId: params.data.userId, status: 'PENDING' } });
+      if (!pending) return { error: 'pending' as const };
+      const count = await tx.groupMember.count({ where: { groupId: circle.id, status: 'ACTIVE' } });
+      if (count >= circle.maxMembers) return { error: 'full' as const };
+      await tx.groupMember.update({ where: { id: pending.id }, data: { status: 'ACTIVE', joinedAt: new Date() } });
+      return { circleId: circle.id };
+    });
+    if ('error' in outcome) {
+      if (outcome.error === 'missing') return reply.code(404).send({ error: 'Circle not found.' });
+      if (outcome.error === 'policy') return reply.code(409).send({ error: 'This Circle does not require join approval.' });
+      if (outcome.error === 'pending') return reply.code(404).send({ error: 'Pending membership request not found.' });
+      return reply.code(409).send({ error: 'This Circle has reached its member limit.' });
+    }
+    await emitSync(params.data.userId, 'circle_membership', outcome.circleId);
     return { approved: true };
   });
 
