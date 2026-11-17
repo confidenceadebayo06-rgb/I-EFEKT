@@ -280,7 +280,8 @@ test('incoming browser calls request ICE credentials with the call room ID witho
 test('Fastify derives the client IP through its explicitly configured trusted-proxy hop count', () => {
   const source = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8');
   assert.match(source, /trustProxyHops = Number\(process\.env\.TRUST_PROXY_HOPS \|\| 0\)/);
-  assert.match(source, /trustProxy: trustProxyHops > 0 \? trustProxyHops : false/);
+  assert.match(source, /trustProxy: boolean \| \(\(address: string, hop: number\) => boolean\)/);
+  assert.match(source, /hop < trustProxyHops/);
   assert.match(source, /clientIp: req\.ip/);
 });
 
