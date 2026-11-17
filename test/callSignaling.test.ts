@@ -166,3 +166,9 @@ test('call declines are accepted only for a live invitation issued to that recip
   assert.match(source, /if \(await redis\.get\(invitationKey\) !== raw\.callerId\) return/);
   assert.match(source, /redis\.eval\([\s\S]*?invitationKey, raw\.callerId\)/);
 });
+
+
+test('successful call joins clear the recipient pending-invitation marker', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /await socket\.join\(room\);\s*await redis\.del\(\`iefekt:call-invite:\$\{room\}:\$\{userId\}\`\);/);
+});
