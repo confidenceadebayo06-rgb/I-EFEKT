@@ -119,3 +119,13 @@ test('revoked members are evicted from every active device and peers are notifie
   assert.match(source, /await evictUserFromRoom\(room, userId\)/);
   assert.match(source, /else await evictUserFromRoom\(room, targetUserId\)/);
 });
+
+test('call participant capacity checks use a token-guarded shared Redis lock across replicas', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /iefekt:call-join-lock:/);
+  assert.match(source, /redis\.set\(lockKey, lockToken, 'PX', 30000, 'NX'\)/);
+  assert.match(source, /if \(await redis\.get\(lockKey\) !== lockToken\)/);
+  assert.match(source, /redis\.eval\("if redis\.call\('GET', KEYS\[1\]\) == ARGV\[1\] then return redis\.call\('DEL', KEYS\[1\]\) else return 0 end"/);
+  assert.match(source, /attachCallSignaling\(io: Server, prisma: PrismaClient, redis: Redis\)/);
+});
+
