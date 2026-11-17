@@ -22,6 +22,7 @@ function setup(joinPolicy: 'OPEN' | 'APPROVAL') {
     groupMember: {
       findUnique: async ({ where }: any) => members.get(`${where.groupId_userId.groupId}:${where.groupId_userId.userId}`) ?? null,
       findFirst: async ({ where }: any) => [...members.values()].find(m => m.groupId === where.groupId && m.userId === where.userId && m.status === where.status) ?? null,
+      findMany: async ({ where }: any) => [...members.values()].filter(m => m.groupId === where.groupId && m.status === where.status),
       count: async ({ where }: any) => [...members.values()].filter(m => m.groupId === where.groupId && m.status === where.status).length,
       upsert: async ({ where, create, update }: any) => {
         const key = `${where.groupId_userId.groupId}:${where.groupId_userId.userId}`;
@@ -80,5 +81,32 @@ test('simultaneous OPEN joins cannot exceed Circle capacity', async () => {
     ]);
     assert.deepEqual([a.statusCode, b.statusCode].sort(), [200, 409]);
     assert.equal([...members.values()].filter(m => m.status === 'ACTIVE').length, 2);
+  } finally { await app.close(); }
+});
+
+test('APPROVAL Circle join creates a pending request', async () => {
+  const { app, members } = setup('APPROVAL');
+  try {
+    const response = await app.inject({ method: 'POST', url: '/api/circles/circle-1/join', headers: { 'x-user': 'new-applicant' } });
+    assert.equal(response.statusCode, 202);
+    assert.equal(members.get('circle-1:new-applicant')?.status, 'PENDING');
+  } finally { await app.close(); }
+});
+
+test('OPEN Circle join activates membership immediately', async () => {
+  const { app, members } = setup('OPEN');
+  try {
+    const response = await app.inject({ method: 'POST', url: '/api/circles/circle-1/join', headers: { 'x-user': 'new-member' } });
+    assert.equal(response.statusCode, 200);
+    assert.equal(members.get('circle-1:new-member')?.status, 'ACTIVE');
+  } finally { await app.close(); }
+});
+
+test('OPEN Circle does not expose an approval queue', async () => {
+  const { app } = setup('OPEN');
+  try {
+    const response = await app.inject({ method: 'GET', url: '/api/circles/circle-1/pending', headers: { 'x-user': 'owner' } });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), { requests: [] });
   } finally { await app.close(); }
 });
