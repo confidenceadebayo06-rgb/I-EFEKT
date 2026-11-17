@@ -38,10 +38,10 @@ test('ICE configuration uses STUN by default and short-lived TURN REST credentia
 
 test('inline browser scripts in the app page parse successfully', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-  const scripts = [...html.matchAll(/<script\\b([^>]*)>([\\s\\S]*?)<\\/script>/gi)]
-    .filter(match => !/\\bsrc\\s*=/.test(match[1] || ''));
+  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+    .filter(match => !/\bsrc\s*=/.test(match[1] || ''));
   assert.ok(scripts.length > 0, 'expected at least one inline script');
   scripts.forEach((match, index) => {
-    new Script(match[2], { filename: `public/index.html:inline-script-${index + 1}` });
+    new Script(match[2], { filename: \`public/index.html:inline-script-\${index + 1}\` });
   });
 });
