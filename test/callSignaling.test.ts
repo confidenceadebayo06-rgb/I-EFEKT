@@ -162,7 +162,7 @@ test('unanswered incoming call invitations expire after 30 seconds and notify th
 test('call declines are accepted only for a live invitation issued to that recipient', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
   assert.match(source, /iefekt:call-invite:\$\{room\}:\$\{inviteeId\}/);
-  assert.match(source, /redis\\.set\\(invitationKey, userId, 'EX', 30, 'NX'\\)/);
+  assert.match(source, /redis\.set\(invitationKey, userId, 'EX', 30, 'NX'\)/);
   assert.match(source, /if \(await redis\.get\(invitationKey\) !== raw\.callerId\) return/);
   assert.match(source, /redis\.eval\([\s\S]*?invitationKey, raw\.callerId\)/);
 });
