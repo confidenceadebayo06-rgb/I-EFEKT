@@ -25,7 +25,8 @@ const s3 = new S3Client({ region: process.env.S3_REGION || 'us-east-1', endpoint
 const mediaBucket = process.env.S3_BUCKET || 'iefekt-media';
 const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
 if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) throw new Error('TRUST_PROXY_HOPS must be a non-negative integer.');
-const app = Fastify({ logger: true, trustProxy: trustProxyHops > 0 ? trustProxyHops : false, bodyLimit: 12 * 1024 * 1024 });
+const trustProxy: boolean | ((address: string, hop: number) => boolean) = trustProxyHops > 0 ? (_address, hop) => hop < trustProxyHops : false;
+const app = Fastify({ logger: true, trustProxy, bodyLimit: 12 * 1024 * 1024 });
 const port = Number(process.env.PORT || 3000);
 const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'development-only-change-me-please-32chars');
 if (process.env.NODE_ENV === 'production' && secret.length < 32) throw new Error('JWT_SECRET must be configured with at least 32 characters in production.');
