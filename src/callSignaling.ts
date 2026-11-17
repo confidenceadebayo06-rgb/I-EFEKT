@@ -26,9 +26,8 @@ async function canJoinCall(prisma: PrismaClient, userId: string, payload: CallJo
   }
   const membership = await prisma.groupMember.findUnique({
     where: { groupId_userId: { groupId: payload.roomId, userId } },
-    select: { status: true }
   });
-  return membership?.status === 'ACTIVE';
+  return !!membership;
 }
 
 export function createIceServers() {
@@ -60,7 +59,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
         }
         const memberIds = raw.scope === 'conversation'
           ? (await prisma.conversationMember.findMany({ where: { conversationId: raw.roomId }, select: { userId: true } })).map(member => member.userId)
-          : (await prisma.groupMember.findMany({ where: { groupId: raw.roomId, status: 'ACTIVE' }, select: { userId: true } })).map(member => member.userId);
+          : (await prisma.groupMember.findMany({ where: { groupId: raw.roomId }, select: { userId: true } })).map(member => member.userId);
         const invitees = [...new Set(memberIds)].filter(id => id !== userId);
         for (const inviteeId of invitees) {
           io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
