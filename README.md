@@ -29,5 +29,12 @@ Redis enforces shared per-IP fixed windows for login (10 per 15 minutes), regist
 ## Railway
 Railway uses the root Dockerfile and railway.json. Create MySQL and Redis services in the same private network. Set API variable DATABASE_URL to `${{MySQL.MYSQL_URL}}` and REDIS_URL to `redis://redis.railway.internal:6379` (replace service hostname if your Redis service has a different name). Also set NODE_ENV=production, JWT_SECRET, COOKIE_SECURE=true, APP_ORIGIN, SMTP settings, and production S3-compatible storage variables. Do not commit secrets.
 
+## WebRTC TURN configuration
+I-EFEKT requests short-lived ICE credentials from the backend for each call. To use managed Turnix TURN relay, set `TURNIX_API_TOKEN` as a server-side secret. The API token is never sent to the browser; the authenticated API requests credentials from Turnix with a 3600-second TTL and returns only the ICE server list and expiry. If the token is absent, the app retains its existing optional `TURN_URLS` + `TURN_SHARED_SECRET` configuration and STUN-only fallback.
+
+The backend sends Fastify's `req.ip` as `X-TURN-CLIENT-IP`. Fastify trusts no proxy by default. If the deployment is behind a known reverse-proxy chain, set `TRUST_PROXY_HOPS` to the exact trusted hop count; do not enable broad proxy trust or trust client-supplied forwarded headers.
+
+Turnix setup: create a project and API token in the Turnix dashboard, then store the token in the deployment's server-side environment. Never commit it or put it in browser configuration. Check relay candidates in browser WebRTC diagnostics during staging tests. Provider credentials and relay traffic are subject to Turnix plan limits.
+
 ## Important limits
 The C++ worker accelerates ranking calculations only; it does not accelerate MySQL I/O, video transcoding or delivery. The Docker image currently uses Prisma db push for first-run bootstrap; switch to reviewed migrations before production data is valuable. SMTP, S3 media, WebRTC/SFU streaming and payment/wallet integrations need provider configuration.
