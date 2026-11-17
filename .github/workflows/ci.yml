@@ -1,5 +1,5 @@
 name: I-EFEKT CI
-# CI verifies schema, automated tests, browser script syntax, and the application build.
+# CI verifies schema, automated tests, browser inline-script syntax, and the application build.
 
 on:
   push:
