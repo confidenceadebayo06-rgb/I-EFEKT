@@ -42,6 +42,6 @@ test('inline browser scripts in the app page parse successfully', () => {
     .filter(match => !/\bsrc\s*=/.test(match[1] || ''));
   assert.ok(scripts.length > 0, 'expected at least one inline script');
   scripts.forEach((match, index) => {
-    new Script(match[2], { filename: \`public/index.html:inline-script-\${index + 1}\` });
+    new Script(match[2], { filename: 'public/index.html:inline-script-' + (index + 1) });
   });
 });
