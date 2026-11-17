@@ -13,7 +13,7 @@ type CallSignalPayload = {
   data: unknown;
 };
 
-const roomName = ({ scope, callId }: CallJoinPayload) => `call:${scope}:${callId}`;
+const roomName = ({ scope, roomId, callId }: CallJoinPayload) => `call:${scope}:${roomId}:${callId}`;
 const validId = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 128;
 
@@ -49,12 +49,12 @@ export function createIceServers() {
 export function attachCallSignaling(io: Server, prisma: PrismaClient) {
   io.on('connection', (socket: Socket) => {
     const userId = (socket.data.user as { id: string }).id;
-    const joinedRooms = new Set<string>();
+    const joinedRooms = new Map<string, string>();
 
     socket.on('call:invite', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
       try {
         if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId) ||
-            !joinedRooms.has(roomName(raw)) || !(await canJoinCall(prisma, userId, raw))) {
+            joinedRooms.get(roomName(raw)) !== raw.roomId || !(await canJoinCall(prisma, userId, raw))) {
           acknowledge?.({ ok: false, error: 'You are not allowed to invite people to this call.' });
           return;
         }
@@ -95,7 +95,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(payload);
-        const alreadyJoined = joinedRooms.has(room);
+        const alreadyJoined = joinedRooms.get(room) === payload.roomId;
         const sockets = await io.in(room).fetchSockets();
         const participantIds = [...new Set(sockets.map(peer => (peer.data.user as { id: string }).id))];
         const maxParticipants = payload.scope === 'conversation' ? 2 : 12;
@@ -104,7 +104,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         await socket.join(room);
-        joinedRooms.add(room);
+        joinedRooms.set(room, payload.roomId);
         if (!alreadyJoined) socket.to(room).emit('call:participant-joined', { userId });
         acknowledge?.({ ok: true, roomId: payload.roomId, callId: payload.callId, participants: participantIds.filter(id => id !== userId) });
       } catch {
@@ -125,7 +125,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(raw);
-        if (!joinedRooms.has(room)) {
+        if (joinedRooms.get(room) !== raw.roomId) {
           acknowledge?.({ ok: false, error: 'Join the call before sending signals.' });
           return;
         }
@@ -147,7 +147,8 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     socket.on('call:leave', (raw: CallJoinPayload) => {
       if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId)) return;
       const room = roomName(raw);
-      if (!joinedRooms.delete(room)) return;
+      if (joinedRooms.get(room) !== raw.roomId) return;
+      joinedRooms.delete(room);
       void socket.leave(room);
       socket.to(room).emit('call:participant-left', { userId });
     });
