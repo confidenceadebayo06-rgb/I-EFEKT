@@ -3,16 +3,17 @@ import type { Server, Socket } from 'socket.io';
 import type { PrismaClient } from '@prisma/client';
 
 type CallScope = 'conversation' | 'group';
-type CallJoinPayload = { scope: CallScope; roomId: string };
+type CallJoinPayload = { scope: CallScope; roomId: string; callId: string };
 type CallSignalPayload = {
   scope: CallScope;
   roomId: string;
+  callId: string;
   targetUserId: string;
   kind: 'offer' | 'answer' | 'ice-candidate';
   data: unknown;
 };
 
-const roomName = ({ scope, roomId }: CallJoinPayload) => `call:${scope}:${roomId}`;
+const roomName = ({ scope, callId }: CallJoinPayload) => `call:${scope}:${callId}`;
 const validId = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 128;
 
@@ -52,7 +53,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
 
     socket.on('call:invite', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
       try {
-        if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) ||
+        if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId) ||
             !(await canJoinCall(prisma, userId, raw))) {
           acknowledge?.({ ok: false, error: 'You are not allowed to invite people to this call.' });
           return;
@@ -71,7 +72,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     });
 
     socket.on('call:decline', (raw: CallJoinPayload & { callerId?: string }) => {
-      if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callerId)) return;
+      if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId) || !validId(raw.callerId)) return;
       void canJoinCall(prisma, userId, raw).then(allowed => {
         if (allowed) io.to(`user:${raw.callerId}`).emit('call:declined', { scope: raw.scope, roomId: raw.roomId, userId });
       }).catch(() => undefined);
@@ -79,7 +80,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
 
     socket.on('call:join', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
       try {
-        if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId)) {
+        if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId)) {
           acknowledge?.({ ok: false, error: 'Invalid call room.' });
           return;
         }
@@ -100,7 +101,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
         await socket.join(room);
         joinedRooms.add(room);
         if (!alreadyJoined) socket.to(room).emit('call:participant-joined', { userId });
-        acknowledge?.({ ok: true, roomId: payload.roomId, participants: participantIds.filter(id => id !== userId) });
+        acknowledge?.({ ok: true, roomId: payload.roomId, callId: payload.callId, participants: participantIds.filter(id => id !== userId) });
       } catch {
         acknowledge?.({ ok: false, error: 'Could not join the call. Please try again.' });
       }
@@ -109,7 +110,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     socket.on('call:signal', async (raw: CallSignalPayload, acknowledge?: (result: unknown) => void) => {
       try {
         if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) ||
-            !validId(raw.targetUserId) || !['offer', 'answer', 'ice-candidate'].includes(raw.kind)) {
+            !validId(raw.callId) || !validId(raw.targetUserId) || !['offer', 'answer', 'ice-candidate'].includes(raw.kind)) {
           acknowledge?.({ ok: false, error: 'Invalid call signal.' });
           return;
         }
@@ -130,7 +131,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         for (const peer of recipients) {
-          peer.emit('call:signal', { scope: raw.scope, roomId: raw.roomId, fromUserId: userId, kind: raw.kind, data: raw.data });
+          peer.emit('call:signal', { scope: raw.scope, roomId: raw.roomId, callId: raw.callId, fromUserId: userId, kind: raw.kind, data: raw.data });
         }
         acknowledge?.({ ok: true });
       } catch {
@@ -139,7 +140,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     });
 
     socket.on('call:leave', (raw: CallJoinPayload) => {
-      if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId)) return;
+      if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId)) return;
       const room = roomName(raw);
       if (!joinedRooms.delete(room)) return;
       void socket.leave(room);
