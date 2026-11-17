@@ -5,7 +5,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
-import { attachCallSignaling, createIceServers } from './callSignaling.js';
+import { attachCallSignaling, createIceServersForClient } from './callSignaling.js';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { Redis } from 'ioredis';
@@ -23,7 +23,9 @@ const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
 const s3 = new S3Client({ region: process.env.S3_REGION || 'us-east-1', endpoint: process.env.S3_ENDPOINT || undefined, forcePathStyle: !!process.env.S3_ENDPOINT, credentials: process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY ? { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY } : undefined });
 const mediaBucket = process.env.S3_BUCKET || 'iefekt-media';
-const app = Fastify({ logger: true, bodyLimit: 12 * 1024 * 1024 });
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) throw new Error('TRUST_PROXY_HOPS must be a non-negative integer.');
+const app = Fastify({ logger: true, trustProxy: trustProxyHops > 0 ? trustProxyHops : false, bodyLimit: 12 * 1024 * 1024 });
 const port = Number(process.env.PORT || 3000);
 const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'development-only-change-me-please-32chars');
 if (process.env.NODE_ENV === 'production' && secret.length < 32) throw new Error('JWT_SECRET must be configured with at least 32 characters in production.');
@@ -275,9 +277,42 @@ app.post('/api/groups', { preHandler: auth }, async (req, reply) => { const name
 app.get('/api/groups', { preHandler: auth }, async (req) => ({ groups: await prisma.socialGroup.findMany({ where: { members: { some: { userId: req.user!.id } } }, include: { _count: { select: { members: true } } } }) }));
 app.get('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); return { messages: await prisma.groupMessage.findMany({ where: { groupId: id }, orderBy: { createdAt: 'asc' }, take: 200 }) }; });
 app.post('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); const body = String((req.body as any)?.body || '').trim(); if (!body || body.length > 4000) return reply.code(400).send({ error: 'Invalid message.' }); const m = await prisma.groupMessage.create({ data: { groupId: id, userId: req.user!.id, body } }); io.to(`group:${id}`).emit('group:message', m); return reply.code(201).send({ message: m }); });
-app.get('/api/calls/ice-config', { preHandler: auth }, async () => ({ iceServers: createIceServers(), transport: 'peer-to-peer' }));
-app.post('/api/conversations/:id/calls', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const members = await prisma.conversationMember.findMany({ where: { conversationId: id }, select: { userId: true } }); if (members.length !== 2 || !members.some(member => member.userId === req.user!.id)) return reply.code(403).send({ error: 'Only members of a one-to-one conversation can start this call.' }); return { roomId: id, callId: randomUUID(), scope: 'conversation', iceServers: createIceServers() }; });
-app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'An active group membership is required to start or join a call.' }); return { roomId: id, callId: randomUUID(), scope: 'group', iceServers: createIceServers(), maxParticipants: 12 }; });
+app.get('/api/calls/ice-config', { preHandler: auth }, async (req, reply) => {
+  const query = req.query as { roomId?: string };
+  try {
+    const config = await createIceServersForClient({ clientIp: req.ip, roomId: query.roomId, clientId: req.user!.id });
+    return config;
+  } catch (error) {
+    req.log.error({ err: error }, 'Could not obtain TURN credentials from configured provider.');
+    return reply.code(502).send({ error: 'Could not obtain secure call network credentials. Please try again.' });
+  }
+});
+app.post('/api/conversations/:id/calls', { preHandler: auth }, async (req, reply) => {
+  const id = (req.params as any).id;
+  const members = await prisma.conversationMember.findMany({ where: { conversationId: id }, select: { userId: true } });
+  if (members.length !== 2 || !members.some(member => member.userId === req.user!.id)) return reply.code(403).send({ error: 'Only members of a one-to-one conversation can start this call.' });
+  const callId = randomUUID();
+  try {
+    const config = await createIceServersForClient({ clientIp: req.ip, roomId: id, clientId: req.user!.id });
+    return { roomId: id, callId, scope: 'conversation', ...config };
+  } catch (error) {
+    req.log.error({ err: error }, 'Could not obtain TURN credentials from configured provider.');
+    return reply.code(502).send({ error: 'Could not obtain secure call network credentials. Please try again.' });
+  }
+});
+app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => {
+  const id = (req.params as any).id;
+  const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } });
+  if (!member) return reply.code(403).send({ error: 'An active group membership is required to start or join a call.' });
+  const callId = randomUUID();
+  try {
+    const config = await createIceServersForClient({ clientIp: req.ip, roomId: id, clientId: req.user!.id });
+    return { roomId: id, callId, scope: 'group', ...config, maxParticipants: 12 };
+  } catch (error) {
+    req.log.error({ err: error }, 'Could not obtain TURN credentials from configured provider.');
+    return reply.code(502).send({ error: 'Could not obtain secure call network credentials. Please try again.' });
+  }
+});
 
 app.get('/api/communities', { preHandler: auth }, async () => ({ communities: await prisma.community.findMany({ include: { _count: { select: { members: true } } }, orderBy: { name: 'asc' } }) }));
 app.post('/api/communities/:id/join', { preHandler: auth }, async (req, reply) => { const communityId = (req.params as any).id; try { await prisma.communityMember.create({ data: { communityId, userId: req.user!.id } }); } catch { return reply.code(409).send({ error: 'Already a member or community not found.' }); } return { joined: true }; });
