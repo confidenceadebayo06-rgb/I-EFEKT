@@ -45,7 +45,7 @@ test('browser call peers attempt an ICE restart after a failed connection', () =
 test('failed incoming call setup releases local media and restores the pending invitation', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.match(html, /if\(!joined\.ok\)\{callLocalStream\.getTracks\(\)\.forEach\(track=>track\.stop\(\)\);callLocalStream=null;const local=document\.getElementById\('call-local-video'\);if\(local\)local\.srcObject=null/);
-  assert.match(html, /async function acceptCloudCall\(\)[\s\S]*?catch\(e\)\{if\(activeCall\)endCloudCall\(\);setCallStatus\(e\.message\);pendingIncomingCall=invite;showCallModal\(\);\}/);
+  assert.match(html, /async function acceptCloudCall\(\)[\s\S]*?catch\(e\)\{if\(activeCall\)endCloudCall\(\);setCallStatus\(e\.message\);pendingIncomingCall=invite;startPendingIncomingCallTimer\(invite\);showCallModal\(\);\}/);
 });
 
 test('inline browser scripts in the app page parse successfully', () => {
@@ -145,7 +145,7 @@ test('a second incoming call cannot replace an invitation already awaiting a dec
 
 test('a pending incoming call invitation expires when the signaling socket disconnects', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.match(html, /else if\(pendingIncomingCall\)\{pendingIncomingCall=null;document\.getElementById\('call-incoming-controls'\)\.classList\.add\('hidden'\);showCallModal\(\);setCallStatus\('The incoming invitation expired because the secure connection was interrupted\./);
+  assert.match(html, /else if\(pendingIncomingCall\)\{clearPendingIncomingCallTimer\(\);pendingIncomingCall=null;document\.getElementById\('call-incoming-controls'\)\.classList\.add\('hidden'\);showCallModal\(\);setCallStatus\('The incoming invitation expired because the secure connection was interrupted\./);
 });
 
 
