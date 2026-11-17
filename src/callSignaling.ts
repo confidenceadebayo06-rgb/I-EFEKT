@@ -74,11 +74,15 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
         const activeSockets = await io.in(room).fetchSockets();
         const activeUserIds = new Set(activeSockets.map(peer => (peer.data.user as { id: string }).id));
         const invitees = [...new Set(memberIds)].filter(id => id !== userId && !activeUserIds.has(id));
+        let invitedCount = 0;
         for (const inviteeId of invitees) {
           const stillMember = await canJoinCall(prisma, inviteeId, raw);
-          if (stillMember) io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
+          if (stillMember) {
+            io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
+            invitedCount += 1;
+          }
         }
-        acknowledge?.({ ok: true, invited: invitees.length });
+        acknowledge?.({ ok: true, invited: invitedCount });
       } catch {
         acknowledge?.({ ok: false, error: 'Could not send the call invitation.' });
       }
