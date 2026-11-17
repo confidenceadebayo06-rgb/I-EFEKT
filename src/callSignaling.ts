@@ -129,7 +129,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         for (const peer of recipients) {
-          peer.emit('call:signal', { fromUserId: userId, kind: raw.kind, data: raw.data });
+          peer.emit('call:signal', { scope: raw.scope, roomId: raw.roomId, fromUserId: userId, kind: raw.kind, data: raw.data });
         }
         acknowledge?.({ ok: true });
       } catch {
