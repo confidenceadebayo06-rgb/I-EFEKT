@@ -86,10 +86,10 @@ test('joining from a second device does not announce a duplicate call participan
 
 test('call signaling revalidates sender and recipient membership before relaying media negotiation', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
-  assert.match(source, /joinedRooms\\.get\\(room\\) !== raw\\.roomId/);
-  assert.match(source, /if \\(\!\(await canJoinCall\\(prisma, userId, raw\\)\\)\)/);
-  assert.match(source, /if \(await canJoinCall\(prisma, targetUserId, raw\)\) recipients\.push\(peer\)/);
-  assert.match(source, /await peer\.leave\(room\)/);
+  assert.ok(source.includes('joinedRooms.get(room) !== raw.roomId'));
+  assert.ok(source.includes('if (!(await canJoinCall(prisma, userId, raw)))'));
+  assert.ok(source.includes('if (await canJoinCall(prisma, targetUserId, raw)) recipients.push(peer)'));
+  assert.ok(source.includes('await evictUserFromRoom(room, targetUserId)'));
 });
 
 test('revoked members are evicted from every active device and peers are notified', () => {
