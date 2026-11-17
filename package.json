@@ -12,7 +12,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "engine:build": "node scripts/build-engine.mjs",
-    "engine:benchmark": "node scripts/benchmark-engine.mjs"
+    "engine:benchmark": "node scripts/benchmark-engine.mjs",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

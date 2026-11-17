@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
+import { registerCircleRoutes } from './circleRoutes.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -104,6 +105,7 @@ const emitSync = async (userId: string, entityType: string, entityId: string) =>
   const row = await prisma.syncChange.create({ data: { userId, entityType, entityId } });
   io.to(`user:${userId}`).emit('sync:changed', { cursor: row.id.toString(), entity_type: entityType, entity_id: entityId });
 };
+registerCircleRoutes(app, prisma, auth, emitSync);
 const sendMail = async (to: string, subject: string, html: string) => {
   await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
 };
