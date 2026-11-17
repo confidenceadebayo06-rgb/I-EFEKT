@@ -49,7 +49,7 @@ test('inline browser scripts in the app page parse successfully', () => {
 
 test('call signaling uses unique call IDs rather than the underlying conversation or group ID for room isolation', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
-  assert.match(source, /call:\$\{scope\}:\$\{callId\}/);
+  assert.match(source, /call:\$\{scope\}:\$\{roomId\}:\$\{callId\}/);
   assert.match(source, /validId\(raw\.callId\)/);
 });
 
@@ -61,5 +61,12 @@ test('call decline notifications are sent only to the caller currently in the is
 
 test('call invitations require the sender to have joined that exact call session', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
-  assert.match(source, /!joinedRooms\.has\(roomName\(raw\)\) \|\| !\(await canJoinCall\(prisma, userId, raw\)\)/);
+  assert.match(source, /joinedRooms\.get\(roomName\(raw\)\) !== raw\.roomId \|\| !\(await canJoinCall\(prisma, userId, raw\)\)/);
+});
+
+
+test('call room names include the underlying conversation or group ID as well as the unique call ID', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /`call:\$\{scope\}:\$\{roomId\}:\$\{callId\}`/);
+  assert.match(source, /joinedRooms\.get\(room\) !== raw\.roomId/);
 });
