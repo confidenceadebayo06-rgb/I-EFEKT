@@ -17,7 +17,6 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
 import { registerCircleRoutes } from './circleRoutes.js';
-import { attachCallSignaling, createIceServers } from './callSignaling.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -54,7 +53,7 @@ app.addHook('onSend', async (_req, reply, payload) => {
   reply.header('X-Content-Type-Options', 'nosniff');
   reply.header('X-Frame-Options', 'DENY');
   reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-  reply.header('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
+  reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   reply.header('Cross-Origin-Opener-Policy', 'same-origin');
   return payload;
 });
@@ -273,9 +272,7 @@ app.post('/api/groups', { preHandler: auth }, async (req, reply) => { const name
 app.get('/api/groups', { preHandler: auth }, async (req) => ({ groups: await prisma.socialGroup.findMany({ where: { members: { some: { userId: req.user!.id } } }, include: { _count: { select: { members: true } } } }) }));
 app.get('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); return { messages: await prisma.groupMessage.findMany({ where: { groupId: id }, orderBy: { createdAt: 'asc' }, take: 200 }) }; });
 app.post('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); const body = String((req.body as any)?.body || '').trim(); if (!body || body.length > 4000) return reply.code(400).send({ error: 'Invalid message.' }); const m = await prisma.groupMessage.create({ data: { groupId: id, userId: req.user!.id, body } }); io.to(`group:${id}`).emit('group:message', m); return reply.code(201).send({ message: m }); });
-app.get('/api/calls/ice-config', { preHandler: auth }, async () => ({ iceServers: createIceServers(), transport: 'peer-to-peer' }));
-app.post('/api/conversations/:id/calls', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const members = await prisma.conversationMember.findMany({ where: { conversationId: id }, select: { userId: true } }); if (members.length !== 2 || !members.some(member => member.userId === req.user!.id)) return reply.code(403).send({ error: 'Only members of a one-to-one conversation can start this call.' }); return { roomId: id, scope: 'conversation', iceServers: createIceServers() }; });
-app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member || member.status !== 'ACTIVE') return reply.code(403).send({ error: 'An active group membership is required to start or join a call.' }); return { roomId: id, scope: 'group', iceServers: createIceServers(), maxParticipants: 12 }; });
+app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); return reply.code(501).send({ error: 'Call signalling is scaffolded. Configure a WebRTC SFU or managed media provider to create a live call room.' }); });
 
 app.get('/api/communities', { preHandler: auth }, async () => ({ communities: await prisma.community.findMany({ include: { _count: { select: { members: true } } }, orderBy: { name: 'asc' } }) }));
 app.post('/api/communities/:id/join', { preHandler: auth }, async (req, reply) => { const communityId = (req.params as any).id; try { await prisma.communityMember.create({ data: { communityId, userId: req.user!.id } }); } catch { return reply.code(409).send({ error: 'Already a member or community not found.' }); } return { joined: true }; });
@@ -312,7 +309,6 @@ app.post('/api/media/:id/complete', { preHandler: auth }, async (req, reply) => 
 app.post('/api/live/sessions', { preHandler: auth }, async (_req, reply) => reply.code(501).send({ error: 'Live streaming requires an RTMP/WebRTC ingest and distribution provider. The API integration point is reserved.' }));
 
 const io = new SocketServer(app.server, { cors: { origin, credentials: true } });
-attachCallSignaling(io, prisma);
 io.use((socket, next) => { try { const token = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.split('=').slice(1).join('='); if (!token) return next(new Error('unauthorized')); const user = jwt.verify(decodeURIComponent(token), secret) as SessionUser; socket.data.user = user; next(); } catch { next(new Error('unauthorized')); } });
 io.on('connection', socket => { const user = socket.data.user as SessionUser; socket.join(`user:${user.id}`); socket.on('conversation:join', async (conversationId: string) => { const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId: user.id } } }); if (member) socket.join(`conversation:${conversationId}`); }); socket.on('group:join', async (groupId: string) => { const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: user.id } } }); if (member) socket.join(`group:${groupId}`); }); });
 
