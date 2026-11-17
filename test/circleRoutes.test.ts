@@ -110,3 +110,23 @@ test('OPEN Circle does not expose an approval queue', async () => {
     assert.deepEqual(response.json(), { requests: [] });
   } finally { await app.close(); }
 });
+
+test('non-managers cannot view or approve pending Circle requests', async () => {
+  const { app, members } = setup('APPROVAL');
+  try {
+    const queue = await app.inject({
+      method: 'GET',
+      url: '/api/circles/circle-1/pending',
+      headers: { 'x-user': 'outsider' }
+    });
+    const approval = await app.inject({
+      method: 'POST',
+      url: '/api/circles/circle-1/members/a/approve',
+      headers: { 'x-user': 'outsider' }
+    });
+    assert.equal(queue.statusCode, 403);
+    assert.equal(approval.statusCode, 403);
+    assert.equal(members.get('circle-1:a')?.status, 'PENDING');
+  } finally { await app.close(); }
+});
+
