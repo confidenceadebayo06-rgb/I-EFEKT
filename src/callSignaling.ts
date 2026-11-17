@@ -62,17 +62,21 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
 
     socket.on('call:invite', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
       try {
-        if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId) ||
-            joinedRooms.get(roomName(raw)) !== raw.roomId || !(await canJoinCall(prisma, userId, raw))) {
+        const room = raw && validId(raw.roomId) && validId(raw.callId) && ['conversation', 'group'].includes(raw.scope)
+          ? roomName(raw) : '';
+        if (!room || joinedRooms.get(room) !== raw.roomId || !(await canJoinCall(prisma, userId, raw))) {
           acknowledge?.({ ok: false, error: 'You are not allowed to invite people to this call.' });
           return;
         }
         const memberIds = raw.scope === 'conversation'
           ? (await prisma.conversationMember.findMany({ where: { conversationId: raw.roomId }, select: { userId: true } })).map(member => member.userId)
           : (await prisma.groupMember.findMany({ where: { groupId: raw.roomId }, select: { userId: true } })).map(member => member.userId);
-        const invitees = [...new Set(memberIds)].filter(id => id !== userId);
+        const activeSockets = await io.in(room).fetchSockets();
+        const activeUserIds = new Set(activeSockets.map(peer => (peer.data.user as { id: string }).id));
+        const invitees = [...new Set(memberIds)].filter(id => id !== userId && !activeUserIds.has(id));
         for (const inviteeId of invitees) {
-          io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
+          const stillMember = await canJoinCall(prisma, inviteeId, raw);
+          if (stillMember) io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
         }
         acknowledge?.({ ok: true, invited: invitees.length });
       } catch {
