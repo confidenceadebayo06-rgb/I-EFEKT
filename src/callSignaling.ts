@@ -80,9 +80,11 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Red
           const stillMember = await canJoinCall(prisma, inviteeId, raw);
           if (stillMember) {
             const invitationKey = `iefekt:call-invite:${room}:${inviteeId}`;
-            await redis.set(invitationKey, userId, 'EX', 30);
-            io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
-            invitedCount += 1;
+            const invitationCreated = await redis.set(invitationKey, userId, 'EX', 30, 'NX');
+            if (invitationCreated === 'OK') {
+              io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
+              invitedCount += 1;
+            }
           }
         }
         acknowledge?.({ ok: true, invited: invitedCount });
