@@ -47,7 +47,7 @@ export function createIceServers() {
   return iceServers;
 }
 
-export async function createIceServersForClient(options: { clientIp?: string; roomId?: string; clientId?: string } = {}) {
+export async function createIceServersForClient(options: { clientIp?: string; roomId?: string; clientId?: string; role?: 'initiator' | 'receiver' } = {}) {
   const token = process.env.TURNIX_API_TOKEN;
   if (!token) return { iceServers: createIceServers() };
 
@@ -58,7 +58,7 @@ export async function createIceServersForClient(options: { clientIp?: string; ro
   const room = sanitizeLabel(options.roomId);
   const client = sanitizeLabel(options.clientId);
   if (room) body.room = room;
-  if (client) body.initiator_client = client;
+  if (client) body[options.role === 'receiver' ? 'receiver_client' : 'initiator_client'] = client;
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
