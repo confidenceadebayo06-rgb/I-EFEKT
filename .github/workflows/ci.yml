@@ -39,6 +39,8 @@ jobs:
         run: npx prisma validate
       - name: Generate Prisma client
         run: npx prisma generate
+      - name: Run Circle concurrency tests
+        run: npm test
       - name: Create baseline schema from main
         run: |
           git show origin/main:prisma/schema.prisma > /tmp/schema-base.prisma
