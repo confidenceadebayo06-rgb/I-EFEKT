@@ -315,7 +315,7 @@ app.post('/api/live/sessions', { preHandler: auth }, async (_req, reply) => repl
 
 const io = new SocketServer(app.server, { cors: { origin, credentials: true } });
 io.adapter(createAdapter(socketPubClient, socketSubClient));
-attachCallSignaling(io, prisma);
+attachCallSignaling(io, prisma, limiterRedis);
 io.use((socket, next) => { try { const token = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.split('=').slice(1).join('='); if (!token) return next(new Error('unauthorized')); const user = jwt.verify(decodeURIComponent(token), secret) as SessionUser; socket.data.user = user; next(); } catch { next(new Error('unauthorized')); } });
 io.on('connection', socket => { const user = socket.data.user as SessionUser; socket.join(`user:${user.id}`); socket.on('conversation:join', async (conversationId: string) => { const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId: user.id } } }); if (member) socket.join(`conversation:${conversationId}`); }); socket.on('group:join', async (groupId: string) => { const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: user.id } } }); if (member) socket.join(`group:${groupId}`); }); });
 
