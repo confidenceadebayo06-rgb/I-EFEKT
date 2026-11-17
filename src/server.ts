@@ -4,6 +4,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
 import { attachCallSignaling, createIceServers } from './callSignaling.js';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -29,6 +30,9 @@ if (process.env.NODE_ENV === 'production' && secret.length < 32) throw new Error
 if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured in production.');
 const limiterRedis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
 await limiterRedis.connect();
+const socketPubClient = limiterRedis.duplicate();
+const socketSubClient = limiterRedis.duplicate();
+await Promise.all([socketPubClient.connect(), socketSubClient.connect()]);
 const origin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const cookieName = 'iefekt_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -287,7 +291,7 @@ app.post('/api/creator-tips', { preHandler: auth }, async (req, reply) => { cons
 app.post('/api/media/presign', { preHandler: auth }, async (req, reply) => {
   const p = z.object({ fileName: z.string().min(1).max(255), contentType: z.string().startsWith('video/').or(z.string().startsWith('image/')), size: z.number().int().positive().max(30 * 1024 * 1024) }).safeParse(req.body);
   if (!p.success) return reply.code(400).send({ error: 'Choose an image or video no larger than 30 MB.' });
-  if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY || !process.env.S3_PUBLIC_URL) return reply.code(503).send({ error: 'Cloud media storage is not configured. Set S3 credentials and public URL.' });
+  if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY || !process.env.S3_BUCKET || !process.env.S3_PUBLIC_URL) return reply.code(503).send({ error: 'Cloud media storage is not configured. Set S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY and S3_PUBLIC_URL; set S3_ENDPOINT for S3-compatible providers.' });
   const safeName = p.data.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
   const objectKey = `stories/${req.user!.id}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
   const asset = await prisma.mediaAsset.create({ data: { userId: req.user!.id, objectKey, contentType: p.data.contentType, size: p.data.size, status: 'pending' } });
@@ -310,6 +314,7 @@ app.post('/api/media/:id/complete', { preHandler: auth }, async (req, reply) => 
 app.post('/api/live/sessions', { preHandler: auth }, async (_req, reply) => reply.code(501).send({ error: 'Live streaming requires an RTMP/WebRTC ingest and distribution provider. The API integration point is reserved.' }));
 
 const io = new SocketServer(app.server, { cors: { origin, credentials: true } });
+io.adapter(createAdapter(socketPubClient, socketSubClient));
 attachCallSignaling(io, prisma);
 io.use((socket, next) => { try { const token = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.split('=').slice(1).join('='); if (!token) return next(new Error('unauthorized')); const user = jwt.verify(decodeURIComponent(token), secret) as SessionUser; socket.data.user = user; next(); } catch { next(new Error('unauthorized')); } });
 io.on('connection', socket => { const user = socket.data.user as SessionUser; socket.join(`user:${user.id}`); socket.on('conversation:join', async (conversationId: string) => { const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId: user.id } } }); if (member) socket.join(`conversation:${conversationId}`); }); socket.on('group:join', async (groupId: string) => { const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: user.id } } }); if (member) socket.join(`group:${groupId}`); }); });
