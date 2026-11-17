@@ -2254,12 +2254,14 @@
     async function beginCloudCall(scope,roomId,incoming=null){
       if(!signedInUser)return openAuthPanel();
       if(!cloudSocket)connectCloudSocket();
-      if(!cloudSocket||!cloudSocket.connected)throw new Error('Connect to I-EFEKT messaging before starting a call.');
+      if(!cloudSocket)throw new Error('Secure messaging is unavailable in this browser.');
+      if(!cloudSocket.connected)await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{cloudSocket.off('connect',onConnect);cloudSocket.off('connect_error',onError);reject(new Error('Could not connect to the secure call service.'));},8000);const onConnect=()=>{clearTimeout(timer);cloudSocket.off('connect_error',onError);resolve(true);};const onError=()=>{clearTimeout(timer);cloudSocket.off('connect',onConnect);reject(new Error('Could not connect to the secure call service.'));};cloudSocket.once('connect',onConnect);cloudSocket.once('connect_error',onError);});
       if(activeCall)throw new Error('You are already in a call.');
       const endpoint=scope==='conversation'?'/conversations/'+encodeURIComponent(roomId)+'/calls':'/groups/'+encodeURIComponent(roomId)+'/calls';
       const config=await apiRequest(endpoint,{method:'POST'});
+      const mediaStream=await navigator.mediaDevices.getUserMedia({audio:true,video:true});
       activeCall={scope,roomId,iceServers:config.iceServers||[],callerId:incoming?.callerId||signedInUser.id};
-      callLocalStream=await navigator.mediaDevices.getUserMedia({audio:true,video:true});
+      callLocalStream=mediaStream;
       const localVideo=document.getElementById('call-local-video');localVideo.srcObject=callLocalStream;
       document.getElementById('call-title').textContent=scope==='group'?'I-EFEKT group video call':'I-EFEKT video call';
       document.getElementById('call-incoming-controls').classList.add('hidden');
