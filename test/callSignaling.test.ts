@@ -23,7 +23,7 @@ test('ICE configuration uses STUN by default and short-lived TURN REST credentia
       'turns:turn.example.test:5349?transport=tcp'
     ]);
     assert.match(turn.username, /^\d+:iefekt$/);
-    const expected = createHmac('sha1', process.env.TURN_SHARED_SECRET).update(turn.username).digest('base64');
+    const expected = createHmac('sha1', process.env.TURN_SHARED_SECRET!).update(turn.username).digest('base64');
     assert.equal(turn.credential, expected);
     assert.ok(Number(turn.username.split(':')[0]) > Math.floor(Date.now() / 1000));
   } finally {
