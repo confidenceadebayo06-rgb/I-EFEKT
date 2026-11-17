@@ -139,6 +139,15 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Red
           const sockets = await io.in(room).fetchSockets();
           const participantIds = [...new Set(sockets.map(peer => (peer.data.user as { id: string }).id))];
           const participantAlreadyPresent = participantIds.includes(userId);
+          // A call peer is keyed by user ID in the browser. Allowing two devices
+          // for one user into the same session would deliver one offer to both
+          // sockets and produce competing answers for the same RTCPeerConnection.
+          // Keep one active device per user per call; repeated joins on the same
+          // socket remain idempotent.
+          if (participantAlreadyPresent && !socket.rooms.has(room)) {
+            acknowledge?.({ ok: false, error: 'You are already connected to this call on another device.' });
+            return;
+          }
           const maxParticipants = payload.scope === 'conversation' ? 2 : 12;
           if (!participantAlreadyPresent && participantIds.length >= maxParticipants) {
             acknowledge?.({ ok: false, error: 'This call has reached its participant limit.' });
