@@ -54,7 +54,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     socket.on('call:invite', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
       try {
         if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId) ||
-            !(await canJoinCall(prisma, userId, raw))) {
+            !joinedRooms.has(roomName(raw)) || !(await canJoinCall(prisma, userId, raw))) {
           acknowledge?.({ ok: false, error: 'You are not allowed to invite people to this call.' });
           return;
         }
