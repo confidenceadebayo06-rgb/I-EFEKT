@@ -1,0 +1,5 @@
+-- Baseline marker for databases created from the pre-Circle Prisma schema.
+-- Existing databases must be baselined with `prisma migrate resolve --applied 20261117000000_baseline`
+-- after verifying that their tables match the main-branch Prisma schema.
+-- New empty databases should execute the actual initial-schema migration supplied by
+-- the project's database provisioning process before applying later migrations.
