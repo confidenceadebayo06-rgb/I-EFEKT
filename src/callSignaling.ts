@@ -148,6 +148,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Red
             return;
           }
           await socket.join(room);
+          await redis.del(`iefekt:call-invite:${room}:${userId}`);
           joinedRooms.set(room, payload.roomId);
           if (!participantAlreadyPresent) socket.to(room).emit('call:participant-joined', { userId });
           acknowledge?.({ ok: true, roomId: payload.roomId, callId: payload.callId, participants: participantIds.filter(id => id !== userId) });
