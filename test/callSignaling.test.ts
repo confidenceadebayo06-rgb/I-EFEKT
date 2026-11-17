@@ -129,3 +129,10 @@ test('call participant capacity checks use a token-guarded shared Redis lock acr
   assert.match(source, /attachCallSignaling\(io: Server, prisma: PrismaClient, redis: Redis\)/);
 });
 
+
+test('a transient Redis lock-release error cannot convert an already joined call into a failed join', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /redis\.eval\([\s\S]*?\.catch\(\(\) => 0\)/);
+  assert.match(source, /The lease has a TTL, so a transient Redis release error/);
+});
+
