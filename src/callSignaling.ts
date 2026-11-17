@@ -90,6 +90,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(payload);
+        const alreadyJoined = joinedRooms.has(room);
         const sockets = await io.in(room).fetchSockets();
         const participantIds = [...new Set(sockets.map(peer => (peer.data.user as { id: string }).id))];
         const maxParticipants = payload.scope === 'conversation' ? 2 : 12;
@@ -99,7 +100,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
         }
         await socket.join(room);
         joinedRooms.add(room);
-        socket.to(room).emit('call:participant-joined', { userId });
+        if (!alreadyJoined) socket.to(room).emit('call:participant-joined', { userId });
         acknowledge?.({ ok: true, roomId: payload.roomId, participants: participantIds.filter(id => id !== userId) });
       } catch {
         acknowledge?.({ ok: false, error: 'Could not join the call. Please try again.' });
@@ -113,7 +114,8 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           acknowledge?.({ ok: false, error: 'Invalid call signal.' });
           return;
         }
-        if (raw.data == null || JSON.stringify(raw.data).length > 65536) {
+        const encodedData = raw.data == null ? '' : JSON.stringify(raw.data);
+        if (!encodedData || encodedData.length > 65536) {
           acknowledge?.({ ok: false, error: 'Call signal is empty or too large.' });
           return;
         }
