@@ -3,7 +3,7 @@ name: I-EFEKT CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/webrtc-video-calls]
   pull_request:
     branches: [main]
 
