@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { Script } from 'node:vm';
 import { createIceServers } from '../src/callSignaling.js';
 
 test('ICE configuration uses STUN by default and short-lived TURN REST credentials when configured', () => {
@@ -32,4 +34,14 @@ test('ICE configuration uses STUN by default and short-lived TURN REST credentia
     if (previousSecret === undefined) delete process.env.TURN_SHARED_SECRET;
     else process.env.TURN_SHARED_SECRET = previousSecret;
   }
+});
+
+test('inline browser scripts in the app page parse successfully', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const scripts = [...html.matchAll(/<script\\b([^>]*)>([\\s\\S]*?)<\\/script>/gi)]
+    .filter(match => !/\\bsrc\\s*=/.test(match[1] || ''));
+  assert.ok(scripts.length > 0, 'expected at least one inline script');
+  scripts.forEach((match, index) => {
+    new Script(match[2], { filename: `public/index.html:inline-script-${index + 1}` });
+  });
 });
