@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Script } from 'node:vm';
-import { createIceServers } from '../src/callSignaling.js';
+import { createIceServers, createIceServersForClient } from '../src/callSignaling.js';
 
 test('ICE configuration uses STUN by default and short-lived TURN REST credentials when configured', () => {
   const previousUrls = process.env.TURN_URLS;
@@ -214,4 +214,71 @@ test('TURN credentials are not exposed when the shared secret is shorter than 32
     if (previousSecret === undefined) delete process.env.TURN_SHARED_SECRET;
     else process.env.TURN_SHARED_SECRET = previousSecret;
   }
+});
+
+
+test('Turnix credentials are fetched server-side with a one-hour TTL and sanitized call labels', async () => {
+  const previousToken = process.env.TURNIX_API_TOKEN;
+  const originalFetch = globalThis.fetch;
+  let captured: { url: string; init?: RequestInit } | undefined;
+  try {
+    process.env.TURNIX_API_TOKEN = 'server-only-test-token';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { url: String(input), init };
+      return new Response(JSON.stringify({
+        iceServers: [{ urls: ['turn:relay.example.test:443'], username: 'short-lived', credential: 'ephemeral' }],
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    const config = await createIceServersForClient({
+      clientIp: '203.0.113.7',
+      roomId: 'circle room/42',
+      clientId: 'user@example.com'
+    });
+    assert.equal(captured?.url, 'https://turnix.io/api/v1/credentials/ice');
+    assert.equal((captured?.init?.headers as Record<string, string>).Authorization, 'Bearer server-only-test-token');
+    assert.equal((captured?.init?.headers as Record<string, string>)['X-TURN-CLIENT-IP'], '203.0.113.7');
+    assert.deepEqual(JSON.parse(String(captured?.init?.body)), {
+      ttl: 3600,
+      room: 'circleroom42',
+      initiator_client: 'userexamplecom'
+    });
+    assert.equal(config.iceServers.length, 1);
+    assert.equal(typeof config.expiresAt, 'string');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousToken === undefined) delete process.env.TURNIX_API_TOKEN;
+    else process.env.TURNIX_API_TOKEN = previousToken;
+  }
+});
+
+test('Turnix provider failure does not expose provider response bodies to callers', async () => {
+  const previousToken = process.env.TURNIX_API_TOKEN;
+  const originalFetch = globalThis.fetch;
+  try {
+    process.env.TURNIX_API_TOKEN = 'server-only-test-token';
+    globalThis.fetch = (async () => new Response('private provider diagnostic', { status: 503 })) as typeof fetch;
+    await assert.rejects(
+      createIceServersForClient({ clientIp: '203.0.113.7' }),
+      /Turnix credential request failed with HTTP 503/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousToken === undefined) delete process.env.TURNIX_API_TOKEN;
+    else process.env.TURNIX_API_TOKEN = previousToken;
+  }
+});
+
+test('incoming browser calls request ICE credentials with the call room ID without exposing the Turnix token', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /apiRequest\('\/calls\/ice-config\?roomId='\+encodeURIComponent\(roomId\)\)/);
+  assert.doesNotMatch(html, /TURNIX_API_TOKEN/);
+});
+
+test('Fastify derives the client IP through its explicitly configured trusted-proxy hop count', () => {
+  const source = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8');
+  assert.match(source, /trustProxyHops = Number\(process\.env\.TRUST_PROXY_HOPS \|\| 0\)/);
+  assert.match(source, /trustProxy: trustProxyHops > 0 \? trustProxyHops : false/);
+  assert.match(source, /clientIp: req\.ip/);
 });
