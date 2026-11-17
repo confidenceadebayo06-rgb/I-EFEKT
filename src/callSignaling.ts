@@ -1,4 +1,5 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
+import type { Redis } from 'ioredis';
 import type { Server, Socket } from 'socket.io';
 import type { PrismaClient } from '@prisma/client';
 
@@ -46,7 +47,7 @@ export function createIceServers() {
   return iceServers;
 }
 
-export function attachCallSignaling(io: Server, prisma: PrismaClient) {
+export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Redis) {
   io.on('connection', (socket: Socket) => {
     const userId = (socket.data.user as { id: string }).id;
     const joinedRooms = new Map<string, string>();
@@ -112,18 +113,42 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(payload);
-        const sockets = await io.in(room).fetchSockets();
-        const participantIds = [...new Set(sockets.map(peer => (peer.data.user as { id: string }).id))];
-        const participantAlreadyPresent = participantIds.includes(userId);
-        const maxParticipants = payload.scope === 'conversation' ? 2 : 12;
-        if (!participantAlreadyPresent && participantIds.length >= maxParticipants) {
-          acknowledge?.({ ok: false, error: 'This call has reached its participant limit.' });
+        // Serialize capacity checks across all app replicas using the same Redis
+        // instance as the Socket.IO adapter. The lock is released by token so an
+        // expired lease can never be deleted by a different holder.
+        const lockKey = `iefekt:call-join-lock:${room}`;
+        const lockToken = randomUUID();
+        let acquired = false;
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const result = await redis.set(lockKey, lockToken, 'PX', 30000, 'NX');
+          if (result === 'OK') { acquired = true; break; }
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        if (!acquired) {
+          acknowledge?.({ ok: false, error: 'The call is busy processing another join. Please try again.' });
           return;
         }
-        await socket.join(room);
-        joinedRooms.set(room, payload.roomId);
-        if (!participantAlreadyPresent) socket.to(room).emit('call:participant-joined', { userId });
-        acknowledge?.({ ok: true, roomId: payload.roomId, callId: payload.callId, participants: participantIds.filter(id => id !== userId) });
+        try {
+          const sockets = await io.in(room).fetchSockets();
+          const participantIds = [...new Set(sockets.map(peer => (peer.data.user as { id: string }).id))];
+          const participantAlreadyPresent = participantIds.includes(userId);
+          const maxParticipants = payload.scope === 'conversation' ? 2 : 12;
+          if (!participantAlreadyPresent && participantIds.length >= maxParticipants) {
+            acknowledge?.({ ok: false, error: 'This call has reached its participant limit.' });
+            return;
+          }
+          // Do not join if the lease expired while the distributed room read ran.
+          if (await redis.get(lockKey) !== lockToken) {
+            acknowledge?.({ ok: false, error: 'The call is busy processing another join. Please try again.' });
+            return;
+          }
+          await socket.join(room);
+          joinedRooms.set(room, payload.roomId);
+          if (!participantAlreadyPresent) socket.to(room).emit('call:participant-joined', { userId });
+          acknowledge?.({ ok: true, roomId: payload.roomId, callId: payload.callId, participants: participantIds.filter(id => id !== userId) });
+        } finally {
+          await redis.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", 1, lockKey, lockToken);
+        }
       } catch {
         acknowledge?.({ ok: false, error: 'Could not join the call. Please try again.' });
       }
