@@ -2260,7 +2260,7 @@
       if(!cloudSocket.connected)await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{cloudSocket.off('connect',onConnect);cloudSocket.off('connect_error',onError);reject(new Error('Could not connect to the secure call service.'));},8000);const onConnect=()=>{clearTimeout(timer);cloudSocket.off('connect_error',onError);resolve(true);};const onError=()=>{clearTimeout(timer);cloudSocket.off('connect',onConnect);reject(new Error('Could not connect to the secure call service.'));};cloudSocket.once('connect',onConnect);cloudSocket.once('connect_error',onError);});
       if(activeCall)throw new Error('You are already in a call.');
       const endpoint=scope==='conversation'?'/conversations/'+encodeURIComponent(roomId)+'/calls':'/groups/'+encodeURIComponent(roomId)+'/calls';
-      const config=incoming?await apiRequest('/calls/ice-config'):await apiRequest(endpoint,{method:'POST'});
+      const config=incoming?await apiRequest('/calls/ice-config?roomId='+encodeURIComponent(roomId)):await apiRequest(endpoint,{method:'POST'});
       const mediaStream=await navigator.mediaDevices.getUserMedia({audio:true,video:true});
       activeCall={scope,roomId,callId:incoming?.callId||config.callId,iceServers:config.iceServers||[],callerId:incoming?.callerId||signedInUser.id};
       callLocalStream=mediaStream;
