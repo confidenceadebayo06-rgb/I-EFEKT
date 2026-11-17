@@ -136,3 +136,9 @@ test('a transient Redis lock-release error cannot convert an already joined call
   assert.match(source, /The lease has a TTL, so a transient Redis release error/);
 });
 
+
+test('a second incoming call cannot replace an invitation already awaiting a decision', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /function showIncomingCloudCall\(invite\)\{if\(activeCall\|\|pendingIncomingCall\)\{cloudSocket\.emit\('call:decline',invite\);return;\}pendingIncomingCall=invite;/);
+});
+
