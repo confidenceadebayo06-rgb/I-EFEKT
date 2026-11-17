@@ -47,6 +47,39 @@ export function createIceServers() {
   return iceServers;
 }
 
+export async function createIceServersForClient(options: { clientIp?: string; roomId?: string; clientId?: string } = {}) {
+  const token = process.env.TURNIX_API_TOKEN;
+  if (!token) return { iceServers: createIceServers() };
+
+  const sanitizeLabel = (value?: string) => value
+    ? value.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)
+    : '';
+  const body: Record<string, unknown> = { ttl: 3600 };
+  const room = sanitizeLabel(options.roomId);
+  const client = sanitizeLabel(options.clientId);
+  if (room) body.room = room;
+  if (client) body.initiator_client = client;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  };
+  if (options.clientIp) headers['X-TURN-CLIENT-IP'] = options.clientIp;
+
+  const response = await fetch('https://turnix.io/api/v1/credentials/ice', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`Turnix credential request failed with HTTP ${response.status}.`);
+  const data = await response.json() as { iceServers?: unknown; expiresAt?: unknown };
+  if (!Array.isArray(data.iceServers) || typeof data.expiresAt !== 'string' || !Number.isFinite(Date.parse(data.expiresAt))) {
+    throw new Error('Turnix returned an invalid ICE configuration.');
+  }
+  return { iceServers: data.iceServers, expiresAt: data.expiresAt };
+}
+
 export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Redis) {
   io.on('connection', (socket: Socket) => {
     const userId = (socket.data.user as { id: string }).id;
