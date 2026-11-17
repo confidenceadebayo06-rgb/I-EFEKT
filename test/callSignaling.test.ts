@@ -142,3 +142,9 @@ test('a second incoming call cannot replace an invitation already awaiting a dec
   assert.match(html, /function showIncomingCloudCall\(invite\)\{if\(activeCall\|\|pendingIncomingCall\)\{cloudSocket\.emit\('call:decline',invite\);return;\}pendingIncomingCall=invite;/);
 });
 
+
+test('a pending incoming call invitation expires when the signaling socket disconnects', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /else if\(pendingIncomingCall\)\{pendingIncomingCall=null;document\.getElementById\('call-incoming-controls'\)\.classList\.add\('hidden'\);showCallModal\(\);setCallStatus\('The incoming invitation expired because the secure connection was interrupted\./);
+});
+
