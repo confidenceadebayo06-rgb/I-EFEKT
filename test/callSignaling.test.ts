@@ -273,7 +273,7 @@ test('Turnix provider failure does not expose provider response bodies to caller
 
 test('incoming browser calls request ICE credentials with the call room ID without exposing the Turnix token', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.match(html, /apiRequest\('\/calls\/ice-config\?roomId='\+encodeURIComponent\(roomId\)\)/);
+  assert.match(html, /apiRequest\('\/calls\/ice-config\?roomId='\+encodeURIComponent\(roomId\)\+'&role=receiver'\)/);
   assert.doesNotMatch(html, /TURNIX_API_TOKEN/);
 });
 
