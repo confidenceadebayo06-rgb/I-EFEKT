@@ -175,7 +175,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     socket.on('call:leave', async (raw: CallJoinPayload) => {
       if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId)) return;
       const room = roomName(raw);
-      if (joinedRooms.get(room) !== raw.roomId) return;
+      if (joinedRooms.get(room) !== raw.roomId || !socket.rooms.has(room)) return;
       joinedRooms.delete(room);
       await socket.leave(room);
       const remainingSockets = await io.in(room).fetchSockets();
@@ -186,6 +186,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
 
     socket.on('disconnecting', async () => {
       for (const room of joinedRooms.keys()) {
+        if (!socket.rooms.has(room)) continue;
         const remainingSockets = (await io.in(room).fetchSockets()).filter(peer => peer.id !== socket.id);
         if (!remainingSockets.some(peer => (peer.data.user as { id: string }).id === userId)) {
           socket.to(room).emit('call:participant-left', { userId });
