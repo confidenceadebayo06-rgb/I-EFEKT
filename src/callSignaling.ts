@@ -51,6 +51,33 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     const userId = (socket.data.user as { id: string }).id;
     const joinedRooms = new Set<string>();
 
+    socket.on('call:invite', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
+      try {
+        if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) ||
+            !(await canJoinCall(prisma, userId, raw))) {
+          acknowledge?.({ ok: false, error: 'You are not allowed to invite people to this call.' });
+          return;
+        }
+        const memberIds = raw.scope === 'conversation'
+          ? (await prisma.conversationMember.findMany({ where: { conversationId: raw.roomId }, select: { userId: true } })).map(member => member.userId)
+          : (await prisma.groupMember.findMany({ where: { groupId: raw.roomId, status: 'ACTIVE' }, select: { userId: true } })).map(member => member.userId);
+        const invitees = [...new Set(memberIds)].filter(id => id !== userId);
+        for (const inviteeId of invitees) {
+          io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
+        }
+        acknowledge?.({ ok: true, invited: invitees.length });
+      } catch {
+        acknowledge?.({ ok: false, error: 'Could not send the call invitation.' });
+      }
+    });
+
+    socket.on('call:decline', (raw: CallJoinPayload & { callerId?: string }) => {
+      if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callerId)) return;
+      void canJoinCall(prisma, userId, raw).then(allowed => {
+        if (allowed) io.to(`user:${raw.callerId}`).emit('call:declined', { scope: raw.scope, roomId: raw.roomId, userId });
+      }).catch(() => undefined);
+    });
+
     socket.on('call:join', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
       try {
         if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId)) {
@@ -84,6 +111,10 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
         if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) ||
             !validId(raw.targetUserId) || !['offer', 'answer', 'ice-candidate'].includes(raw.kind)) {
           acknowledge?.({ ok: false, error: 'Invalid call signal.' });
+          return;
+        }
+        if (raw.data == null || JSON.stringify(raw.data).length > 65536) {
+          acknowledge?.({ ok: false, error: 'Call signal is empty or too large.' });
           return;
         }
         const room = roomName(raw);
