@@ -234,7 +234,8 @@ test('Turnix credentials are fetched server-side with a one-hour TTL and sanitiz
     const config = await createIceServersForClient({
       clientIp: '203.0.113.7',
       roomId: 'circle room/42',
-      clientId: 'user@example.com'
+      clientId: 'user-42',
+      role: 'receiver'
     });
     assert.equal(captured?.url, 'https://turnix.io/api/v1/credentials/ice');
     assert.equal((captured?.init?.headers as Record<string, string>).Authorization, 'Bearer server-only-test-token');
@@ -242,7 +243,7 @@ test('Turnix credentials are fetched server-side with a one-hour TTL and sanitiz
     assert.deepEqual(JSON.parse(String(captured?.init?.body)), {
       ttl: 3600,
       room: 'circleroom42',
-      initiator_client: 'userexamplecom'
+      receiver_client: 'user-42'
     });
     assert.equal(config.iceServers.length, 1);
     assert.equal(typeof config.expiresAt, 'string');
@@ -281,4 +282,28 @@ test('Fastify derives the client IP through its explicitly configured trusted-pr
   assert.match(source, /trustProxyHops = Number\(process\.env\.TRUST_PROXY_HOPS \|\| 0\)/);
   assert.match(source, /trustProxy: trustProxyHops > 0 \? trustProxyHops : false/);
   assert.match(source, /clientIp: req\.ip/);
+});
+
+
+test('outgoing Turnix ICE credentials label the offer-creating participant as initiator', async () => {
+  const previousToken = process.env.TURNIX_API_TOKEN;
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+  try {
+    process.env.TURNIX_API_TOKEN = 'server-only-test-token';
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        iceServers: [{ urls: ['turn:relay.example.test:443'] }],
+        expiresAt: new Date(Date.now() + 3600_000).toISOString()
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    await createIceServersForClient({ clientId: 'user-initiator', role: 'initiator' });
+    assert.equal(requestBody?.initiator_client, 'user-initiator');
+    assert.equal(requestBody?.receiver_client, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousToken === undefined) delete process.env.TURNIX_API_TOKEN;
+    else process.env.TURNIX_API_TOKEN = previousToken;
+  }
 });
