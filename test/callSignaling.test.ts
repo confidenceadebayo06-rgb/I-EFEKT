@@ -70,3 +70,10 @@ test('call room names include the underlying conversation or group ID as well as
   assert.match(source, /`call:\$\{scope\}:\$\{roomId\}:\$\{callId\}`/);
   assert.match(source, /joinedRooms\.get\(room\) !== raw\.roomId/);
 });
+
+test('leaving one device does not remove a participant who still has another socket in the call', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /await socket\.leave\(room\);[\s\S]*?remainingSockets = await io\.in\(room\)\.fetchSockets\(\)/);
+  assert.match(source, /!remainingSockets\.some\(peer => \(peer\.data\.user as \{ id: string \}\)\.id === userId\)/);
+  assert.match(source, /remainingSockets = \(await io\.in\(room\)\.fetchSockets\(\)\)\.filter\(peer => peer\.id !== socket\.id\)/);
+});
