@@ -42,6 +42,12 @@ test('browser call peers attempt an ICE restart after a failed connection', () =
   assert.match(html, /state\.restarting=true/);
 });
 
+test('failed incoming call setup releases local media and restores the pending invitation', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /if\(!joined\.ok\)\{callLocalStream\.getTracks\(\)\.forEach\(track=>track\.stop\(\)\);callLocalStream=null;const local=document\.getElementById\('call-local-video'\);if\(local\)local\.srcObject=null/);
+  assert.match(html, /async function acceptCloudCall\(\)[\s\S]*?catch\(e\)\{if\(activeCall\)endCloudCall\(\);setCallStatus\(e\.message\);pendingIncomingCall=invite;showCallModal\(\);\}/);
+});
+
 test('inline browser scripts in the app page parse successfully', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
