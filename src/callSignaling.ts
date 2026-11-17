@@ -79,6 +79,8 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Red
         for (const inviteeId of invitees) {
           const stillMember = await canJoinCall(prisma, inviteeId, raw);
           if (stillMember) {
+            const invitationKey = `iefekt:call-invite:${room}:${inviteeId}`;
+            await redis.set(invitationKey, userId, 'EX', 30);
             io.to(`user:${inviteeId}`).emit('call:incoming', { ...raw, callerId: userId });
             invitedCount += 1;
           }
@@ -94,8 +96,11 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Red
       void canJoinCall(prisma, userId, raw).then(async allowed => {
         if (!allowed) return;
         const room = roomName(raw);
+        const invitationKey = `iefekt:call-invite:${room}:${userId}`;
+        if (await redis.get(invitationKey) !== raw.callerId) return;
         const callers = await io.in(room).fetchSockets();
         if (callers.some(peer => (peer.data.user as { id: string }).id === raw.callerId)) {
+          await redis.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", 1, invitationKey, raw.callerId);
           io.to(`user:${raw.callerId}`).emit('call:declined', { scope: raw.scope, roomId: raw.roomId, callId: raw.callId, userId });
         }
       }).catch(() => undefined);
