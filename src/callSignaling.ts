@@ -137,7 +137,6 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           if (await canJoinCall(prisma, targetUserId, raw)) recipients.push(peer);
           else {
             await peer.leave(room);
-            joinedRooms.delete(room);
           }
         }
         if (!recipients.length) {
