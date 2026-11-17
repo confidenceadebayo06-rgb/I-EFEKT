@@ -52,3 +52,9 @@ test('call signaling uses unique call IDs rather than the underlying conversatio
   assert.match(source, /call:\$\{scope\}:\$\{callId\}/);
   assert.match(source, /validId\(raw\.callId\)/);
 });
+
+test('call decline notifications are sent only to the caller currently in the isolated call room', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /const callers = await io\.in\(room\)\.fetchSockets\(\)/);
+  assert.match(source, /callers\.some\(peer => \(peer\.data\.user as \{ id: string \}\)\.id === raw\.callerId\)/);
+});
