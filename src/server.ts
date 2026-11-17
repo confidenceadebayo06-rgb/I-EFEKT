@@ -345,7 +345,8 @@ app.post('/api/media/:id/complete', { preHandler: auth }, async (req, reply) => 
   try { const head = await s3.send(new HeadObjectCommand({ Bucket: mediaBucket, Key: asset.objectKey })); if (Number(head.ContentLength || 0) !== asset.size || head.ContentType !== asset.contentType) return reply.code(400).send({ error: 'Uploaded file validation failed.' }); }
   catch { return reply.code(400).send({ error: 'Uploaded file could not be verified in cloud storage.' }); }
   await prisma.mediaAsset.update({ where: { id }, data: { status: 'uploaded' } });
-  return { ok: true, assetId: id, publicUrl: `${(process.env.S3_PUBLIC_URL || '').replace(/\/$/, '')}/${asset.objectKey}` };
+  const mediaUrl = `${(process.env.S3_PUBLIC_URL || '').replace(/\/$/, '')}/${asset.objectKey}`;
+  return { ok: true, assetId: id, mediaUrl, publicUrl: mediaUrl };
 });
 app.post('/api/live/sessions', { preHandler: auth }, async (_req, reply) => reply.code(501).send({ error: 'Live streaming requires an RTMP/WebRTC ingest and distribution provider. The API integration point is reserved.' }));
 
