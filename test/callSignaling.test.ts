@@ -47,4 +47,8 @@ test('inline browser scripts in the app page parse successfully', () => {
 });
 
 
-test('call signaling uses unique call IDs rather than the underlying conversation or group ID for room isolation', () => {\n  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');\n  assert.match(source, /call:\$\{scope\}:\$\{callId\}/);\n  assert.match(source, /validId\(raw\.callId\)/);\n});\n
+test('call signaling uses unique call IDs rather than the underlying conversation or group ID for room isolation', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /call:\$\{scope\}:\$\{callId\}/);
+  assert.match(source, /validId\(raw\.callId\)/);
+});
