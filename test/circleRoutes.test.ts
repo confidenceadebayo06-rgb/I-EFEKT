@@ -16,7 +16,7 @@ function setup(joinPolicy: 'OPEN' | 'APPROVAL') {
   let tail = Promise.resolve();
   const tx: any = {
     socialGroup: {
-      update: async () => group,
+      updateMany: async () => ({ count: 1 }),
       findUnique: async () => group
     },
     groupMember: {
