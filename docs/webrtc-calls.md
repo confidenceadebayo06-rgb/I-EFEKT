@@ -28,6 +28,7 @@ The API creates time-limited TURN REST credentials with a one-hour expiry. Keep 
 
 - `call:invite`, `call:incoming`, `call:decline`, `call:declined`
 - `call:join`, `call:participant-joined`, `call:participant-left`, `call:leave`
+- Each call receives a server-generated UUID session ID. The session ID, not the underlying conversation/group ID, names the Socket.IO room, preventing separate calls in the same conversation or group from sharing signaling traffic.
 - `call:signal` with `offer`, `answer`, and `ice-candidate`
 
 Every join and signal is checked against the authenticated user's conversation or active group membership. Signal payloads are limited to 64 KiB and are relayed only to a participant already joined to the same call room.
