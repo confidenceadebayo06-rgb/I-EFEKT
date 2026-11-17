@@ -1,4 +1,5 @@
 name: I-EFEKT CI
+# CI verifies schema, automated tests, and the application build.
 
 on:
   push:
