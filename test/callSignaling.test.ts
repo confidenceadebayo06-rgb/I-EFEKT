@@ -172,3 +172,10 @@ test('successful call joins clear the recipient pending-invitation marker', () =
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
   assert.match(source, /await socket\.join\(room\);\s*await redis\.del\(\`iefekt:call-invite:\$\{room\}:\$\{userId\}\`\);/);
 });
+
+
+test('an active invitation cannot be overwritten by another caller before expiry', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /redis\.set\(invitationKey, userId, 'EX', 30, 'NX'\)/);
+  assert.match(source, /if \(invitationCreated === 'OK'\) \{\s*io\.to\(\`user:\$\{inviteeId\}\`\)\.emit\('call:incoming'/);
+});
