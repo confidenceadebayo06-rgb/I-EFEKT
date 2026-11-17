@@ -77,3 +77,9 @@ test('leaving one device does not remove a participant who still has another soc
   assert.match(source, /!remainingSockets\.some\(peer => \(peer\.data\.user as \{ id: string \}\)\.id === userId\)/);
   assert.match(source, /remainingSockets = \(await io\.in\(room\)\.fetchSockets\(\)\)\.filter\(peer => peer\.id !== socket\.id\)/);
 });
+
+test('joining from a second device does not announce a duplicate call participant', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /const participantAlreadyPresent = participantIds\.includes\(userId\)/);
+  assert.match(source, /if \(!participantAlreadyPresent\) socket\.to\(room\)\.emit\('call:participant-joined'/);
+});
