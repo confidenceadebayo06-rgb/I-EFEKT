@@ -50,6 +50,15 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
   io.on('connection', (socket: Socket) => {
     const userId = (socket.data.user as { id: string }).id;
     const joinedRooms = new Map<string, string>();
+    const evictUserFromRoom = async (room: string, targetUserId: string) => {
+      const roomSockets = await io.in(room).fetchSockets();
+      const revokedSockets = roomSockets.filter(peer => (peer.data.user as { id: string }).id === targetUserId);
+      for (const peer of revokedSockets) {
+        await peer.leave(room);
+        if (peer.id === socket.id) joinedRooms.delete(room);
+      }
+      if (revokedSockets.length) io.to(room).emit('call:participant-left', { userId: targetUserId });
+    };
 
     socket.on('call:invite', async (raw: CallJoinPayload, acknowledge?: (result: unknown) => void) => {
       try {
@@ -125,7 +134,12 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(raw);
-        if (joinedRooms.get(room) !== raw.roomId || !(await canJoinCall(prisma, userId, raw))) {
+        if (joinedRooms.get(room) !== raw.roomId) {
+          acknowledge?.({ ok: false, error: 'Join the call before sending signals.' });
+          return;
+        }
+        if (!(await canJoinCall(prisma, userId, raw))) {
+          await evictUserFromRoom(room, userId);
           acknowledge?.({ ok: false, error: 'You are no longer authorized to send signals in this call.' });
           return;
         }
@@ -135,9 +149,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
         for (const peer of targetSockets) {
           const targetUserId = (peer.data.user as { id: string }).id;
           if (await canJoinCall(prisma, targetUserId, raw)) recipients.push(peer);
-          else {
-            await peer.leave(room);
-          }
+          else await evictUserFromRoom(room, targetUserId);
         }
         if (!recipients.length) {
           acknowledge?.({ ok: false, error: 'That participant is no longer authorized or present in the call.' });
