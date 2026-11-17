@@ -95,17 +95,17 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(payload);
-        const alreadyJoined = joinedRooms.get(room) === payload.roomId;
         const sockets = await io.in(room).fetchSockets();
         const participantIds = [...new Set(sockets.map(peer => (peer.data.user as { id: string }).id))];
+        const participantAlreadyPresent = participantIds.includes(userId);
         const maxParticipants = payload.scope === 'conversation' ? 2 : 12;
-        if (!participantIds.includes(userId) && participantIds.length >= maxParticipants) {
+        if (!participantAlreadyPresent && participantIds.length >= maxParticipants) {
           acknowledge?.({ ok: false, error: 'This call has reached its participant limit.' });
           return;
         }
         await socket.join(room);
         joinedRooms.set(room, payload.roomId);
-        if (!alreadyJoined) socket.to(room).emit('call:participant-joined', { userId });
+        if (!participantAlreadyPresent) socket.to(room).emit('call:participant-joined', { userId });
         acknowledge?.({ ok: true, roomId: payload.roomId, callId: payload.callId, participants: participantIds.filter(id => id !== userId) });
       } catch {
         acknowledge?.({ ok: false, error: 'Could not join the call. Please try again.' });
