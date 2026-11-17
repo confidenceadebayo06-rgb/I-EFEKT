@@ -29,6 +29,20 @@ Redis enforces shared per-IP fixed windows for login (10 per 15 minutes), regist
 ## Railway
 Railway uses the root Dockerfile and railway.json. Create MySQL and Redis services in the same private network. Set API variable DATABASE_URL to `${{MySQL.MYSQL_URL}}` and REDIS_URL to `redis://redis.railway.internal:6379` (replace service hostname if your Redis service has a different name). Also set NODE_ENV=production, JWT_SECRET, COOKIE_SECURE=true, APP_ORIGIN, SMTP settings, and production S3-compatible storage variables. Do not commit secrets.
 
+## Cloudflare R2 media storage (staging)
+
+R2 is S3-compatible. For a bucket named `iefekt-media`, configure these variables on the staging API service only:
+
+- `S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
+- `S3_REGION=auto`
+- `S3_BUCKET=iefekt-media`
+- `S3_ACCESS_KEY` and `S3_SECRET_KEY`: an R2 API token scoped to this bucket with Object Read & Write permissions
+- `S3_PUBLIC_URL`: the public media hostname or authorized media-delivery base URL, with no trailing slash
+
+The upload API signs a PUT request and verifies the stored object's size and content type before marking the asset uploaded. Configure the bucket's CORS policy to allow the staging app origin, PUT, and the `Content-Type` request header; expose only the headers needed by the browser. Keep the bucket private unless a deliberate public/custom-domain delivery policy has been chosen. Never put R2 credentials in browser code or commit them. Do not copy staging credentials into production.
+
+For R2, use `S3_REGION=auto`; the API also defaults custom S3 endpoints to `auto` when this variable is unset. The standard local MinIO setup continues to use `us-east-1`.
+
 ## WebRTC TURN configuration
 I-EFEKT requests short-lived ICE credentials from the backend for each call. To use managed Turnix TURN relay, set `TURNIX_API_TOKEN` as a server-side secret. The API token is never sent to the browser; the authenticated API requests credentials from Turnix with a 3600-second TTL and returns only the ICE server list and expiry. If the token is absent, the app retains its existing optional `TURN_URLS` + `TURN_SHARED_SECRET` configuration and STUN-only fallback.
 
