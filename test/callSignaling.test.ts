@@ -185,3 +185,10 @@ test('invitation cleanup failure does not undo a successful room join', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
   assert.match(source, /await redis\.del\(\`iefekt:call-invite:\$\{room\}:\$\{userId\}\`\)\.catch\(\(\) => 0\);\s*joinedRooms\.set\(room, payload\.roomId\)/);
 });
+
+
+test('incoming call invitations contain only server-approved fields', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /emit\('call:incoming', \{ scope: raw\.scope, roomId: raw\.roomId, callId: raw\.callId, callerId: userId \}\)/);
+  assert.doesNotMatch(source, /emit\('call:incoming', \{ \.\.\.raw/);
+});
