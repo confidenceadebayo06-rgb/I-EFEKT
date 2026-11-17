@@ -43,7 +43,9 @@ jobs:
         run: |
           git show origin/main:prisma/schema.prisma > /tmp/schema-base.prisma
           npx prisma db push --schema=/tmp/schema-base.prisma --skip-generate
-      - name: Apply checked-in migrations to CI MySQL
+      - name: Mark existing schema baseline as applied
+        run: npx prisma migrate resolve --applied 20261117000000_baseline
+      - name: Apply Circle migrations to CI MySQL
         run: npx prisma migrate deploy
       - name: Verify migration state
         run: npx prisma migrate status
