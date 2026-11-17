@@ -97,9 +97,11 @@ test('stale local room bookkeeping cannot emit duplicate participant-left events
   assert.match(source, /for \(const room of joinedRooms\.keys\(\)\) \{\s*if \(!socket\.rooms\.has\(room\)\) continue;/);
 });
 
-test('joining from a second device does not announce a duplicate call participant', () => {
+test('a second device for the same user cannot create competing peer connections in one call session', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
   assert.match(source, /const participantAlreadyPresent = participantIds\.includes\(userId\)/);
+  assert.match(source, /if \(participantAlreadyPresent && !socket\.rooms\.has\(room\)\)/);
+  assert.match(source, /already connected to this call on another device/);
   assert.match(source, /if \(!participantAlreadyPresent\) socket\.to\(room\)\.emit\('call:participant-joined'/);
 });
 
