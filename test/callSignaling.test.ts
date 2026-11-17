@@ -27,7 +27,10 @@ test('ICE configuration uses STUN by default and short-lived TURN REST credentia
     assert.match(turn.username, /^\d+:iefekt$/);
     const expected = createHmac('sha1', process.env.TURN_SHARED_SECRET!).update(turn.username).digest('base64');
     assert.equal(turn.credential, expected);
-    assert.ok(Number(turn.username.split(':')[0]) > Math.floor(Date.now() / 1000));
+    const now = Math.floor(Date.now() / 1000);
+    const expiresAt = Number(turn.username.split(':')[0]);
+    assert.ok(expiresAt > now);
+    assert.ok(expiresAt <= now + 60 * 60);
   } finally {
     if (previousUrls === undefined) delete process.env.TURN_URLS;
     else process.env.TURN_URLS = previousUrls;
@@ -193,4 +196,22 @@ test('incoming call invitations contain only server-approved fields', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
   assert.match(source, /emit\('call:incoming', \{ scope: raw\.scope, roomId: raw\.roomId, callId: raw\.callId, callerId: userId \}\)/);
   assert.doesNotMatch(source, /emit\('call:incoming', \{ \.\.\.raw/);
+});
+
+
+test('TURN credentials are not exposed when the shared secret is shorter than 32 characters', () => {
+  const previousUrls = process.env.TURN_URLS;
+  const previousSecret = process.env.TURN_SHARED_SECRET;
+  try {
+    process.env.TURN_URLS = 'turn:turn.example.test:3478';
+    process.env.TURN_SHARED_SECRET = 'too-short-secret';
+    const servers = createIceServers();
+    assert.equal(servers.length, 1);
+    assert.equal(servers[0].urls, 'stun:stun.l.google.com:19302');
+  } finally {
+    if (previousUrls === undefined) delete process.env.TURN_URLS;
+    else process.env.TURN_URLS = previousUrls;
+    if (previousSecret === undefined) delete process.env.TURN_SHARED_SECRET;
+    else process.env.TURN_SHARED_SECRET = previousSecret;
+  }
 });
