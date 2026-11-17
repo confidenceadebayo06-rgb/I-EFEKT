@@ -36,6 +36,12 @@ test('ICE configuration uses STUN by default and short-lived TURN REST credentia
   }
 });
 
+test('browser call peers attempt an ICE restart after a failed connection', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /pc\.createOffer\(\{iceRestart:true\}\)/);
+  assert.match(html, /state\.restarting=true/);
+});
+
 test('inline browser scripts in the app page parse successfully', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
