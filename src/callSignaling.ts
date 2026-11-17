@@ -147,7 +147,9 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient, redis: Red
           if (!participantAlreadyPresent) socket.to(room).emit('call:participant-joined', { userId });
           acknowledge?.({ ok: true, roomId: payload.roomId, callId: payload.callId, participants: participantIds.filter(id => id !== userId) });
         } finally {
-          await redis.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", 1, lockKey, lockToken);
+          // The lease has a TTL, so a transient Redis release error must not
+          // turn a successfully joined call into a reported join failure.
+          await redis.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", 1, lockKey, lockToken).catch(() => 0);
         }
       } catch {
         acknowledge?.({ ok: false, error: 'Could not join the call. Please try again.' });
