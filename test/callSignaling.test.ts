@@ -90,3 +90,12 @@ test('call signaling revalidates sender and recipient membership before relaying
   assert.match(source, /if \(await canJoinCall\(prisma, targetUserId, raw\)\) recipients\.push\(peer\)/);
   assert.match(source, /await peer\.leave\(room\)/);
 });
+
+test('revoked members are evicted from every active device and peers are notified', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /const evictUserFromRoom = async \(room: string, targetUserId: string\)/);
+  assert.match(source, /revokedSockets = roomSockets\.filter\(peer => \(peer\.data\.user as \{ id: string \}\)\.id === targetUserId\)/);
+  assert.match(source, /if \(revokedSockets\.length\) io\.to\(room\)\.emit\('call:participant-left'/);
+  assert.match(source, /await evictUserFromRoom\(room, userId\)/);
+  assert.match(source, /else await evictUserFromRoom\(room, targetUserId\)/);
+});
