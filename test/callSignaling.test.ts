@@ -148,3 +148,12 @@ test('a pending incoming call invitation expires when the signaling socket disco
   assert.match(html, /else if\(pendingIncomingCall\)\{pendingIncomingCall=null;document\.getElementById\('call-incoming-controls'\)\.classList\.add\('hidden'\);showCallModal\(\);setCallStatus\('The incoming invitation expired because the secure connection was interrupted\./);
 });
 
+
+test('unanswered incoming call invitations expire after 30 seconds and notify the caller', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /function startPendingIncomingCallTimer\(invite\).*setTimeout\(\(\)=>\{if\(pendingIncomingCall!==invite\)return;if\(cloudSocket\)cloudSocket\.emit\('call:decline',invite\);pendingIncomingCall=null;pendingIncomingCallTimer=null;/);
+  assert.match(html, /\},30000\);/);
+  assert.match(html, /function acceptCloudCall\(\)\{const invite=pendingIncomingCall;if\(!invite\)return;clearPendingIncomingCallTimer\(\);/);
+  assert.match(html, /function declineCloudCall\(\)\{clearPendingIncomingCallTimer\(\);/);
+});
+
