@@ -115,7 +115,8 @@ export function registerCircleRoutes(
     const outcome = await prisma.$transaction(async tx => {
       // Updating the parent row obtains a write lock held until commit. All join
       // and approval capacity checks lock this same row, preventing overbooking.
-      await tx.socialGroup.update({ where: { id: parsed.data.id }, data: { updatedAt: new Date() } });
+      const locked = await tx.socialGroup.updateMany({ where: { id: parsed.data.id }, data: { updatedAt: new Date() } });
+      if (!locked.count) return { error: 'missing' as const };
       const circle = await tx.socialGroup.findUnique({ where: { id: parsed.data.id } });
       if (!circle || circle.visibility === 'PRIVATE' || circle.visibility === 'INVITE_ONLY') return { error: 'closed' as const };
       const existing = await tx.groupMember.findUnique({
@@ -134,7 +135,7 @@ export function registerCircleRoutes(
       return { circleId: circle.id, status };
     });
     if ('error' in outcome) {
-      if (outcome.error === 'closed') return reply.code(404).send({ error: 'This Circle is not open for applications.' });
+      if (outcome.error === 'missing' || outcome.error === 'closed') return reply.code(404).send({ error: 'This Circle is not open for applications.' });
       if (outcome.error === 'active') return reply.code(409).send({ error: 'You are already a Circle member.' });
       if (outcome.error === 'pending') return reply.code(409).send({ error: 'Your Circle request is awaiting approval.' });
       return reply.code(409).send({ error: 'This Circle has reached its member limit.' });
@@ -177,7 +178,8 @@ export function registerCircleRoutes(
     if (!params.success) return bad(reply, 'Invalid Circle or user ID.');
     if (!await canManage(prisma, params.data.id, request.user!.id)) return reply.code(403).send({ error: 'Only Circle owners or facilitators can approve members.' });
     const outcome = await prisma.$transaction(async tx => {
-      await tx.socialGroup.update({ where: { id: params.data.id }, data: { updatedAt: new Date() } });
+      const locked = await tx.socialGroup.updateMany({ where: { id: params.data.id }, data: { updatedAt: new Date() } });
+      if (!locked.count) return { error: 'missing' as const };
       const circle = await tx.socialGroup.findUnique({ where: { id: params.data.id } });
       if (!circle) return { error: 'missing' as const };
       if (circle.joinPolicy !== 'APPROVAL') return { error: 'policy' as const };
