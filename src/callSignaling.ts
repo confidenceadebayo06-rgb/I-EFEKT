@@ -125,14 +125,23 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(raw);
-        if (joinedRooms.get(room) !== raw.roomId) {
-          acknowledge?.({ ok: false, error: 'Join the call before sending signals.' });
+        if (joinedRooms.get(room) !== raw.roomId || !(await canJoinCall(prisma, userId, raw))) {
+          acknowledge?.({ ok: false, error: 'You are no longer authorized to send signals in this call.' });
           return;
         }
         const peers = await io.in(room).fetchSockets();
-        const recipients = peers.filter(peer => (peer.data.user as { id: string }).id === raw.targetUserId);
+        const targetSockets = peers.filter(peer => (peer.data.user as { id: string }).id === raw.targetUserId);
+        const recipients = [];
+        for (const peer of targetSockets) {
+          const targetUserId = (peer.data.user as { id: string }).id;
+          if (await canJoinCall(prisma, targetUserId, raw)) recipients.push(peer);
+          else {
+            await peer.leave(room);
+            joinedRooms.delete(room);
+          }
+        }
         if (!recipients.length) {
-          acknowledge?.({ ok: false, error: 'That participant is no longer in the call.' });
+          acknowledge?.({ ok: false, error: 'That participant is no longer authorized or present in the call.' });
           return;
         }
         for (const peer of recipients) {
