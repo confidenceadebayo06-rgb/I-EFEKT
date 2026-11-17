@@ -74,7 +74,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
     socket.on('call:decline', (raw: CallJoinPayload & { callerId?: string }) => {
       if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId) || !validId(raw.callerId)) return;
       void canJoinCall(prisma, userId, raw).then(allowed => {
-        if (allowed) io.to(`user:${raw.callerId}`).emit('call:declined', { scope: raw.scope, roomId: raw.roomId, userId });
+        if (allowed) io.to(`user:${raw.callerId}`).emit('call:declined', { scope: raw.scope, roomId: raw.roomId, callId: raw.callId, userId });
       }).catch(() => undefined);
     });
 
