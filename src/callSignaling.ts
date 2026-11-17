@@ -144,18 +144,24 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
       }
     });
 
-    socket.on('call:leave', (raw: CallJoinPayload) => {
+    socket.on('call:leave', async (raw: CallJoinPayload) => {
       if (!raw || !['conversation', 'group'].includes(raw.scope) || !validId(raw.roomId) || !validId(raw.callId)) return;
       const room = roomName(raw);
       if (joinedRooms.get(room) !== raw.roomId) return;
       joinedRooms.delete(room);
-      void socket.leave(room);
-      socket.to(room).emit('call:participant-left', { userId });
+      await socket.leave(room);
+      const remainingSockets = await io.in(room).fetchSockets();
+      if (!remainingSockets.some(peer => (peer.data.user as { id: string }).id === userId)) {
+        io.to(room).emit('call:participant-left', { userId });
+      }
     });
 
-    socket.on('disconnecting', () => {
-      for (const room of joinedRooms) {
-        socket.to(room).emit('call:participant-left', { userId });
+    socket.on('disconnecting', async () => {
+      for (const room of joinedRooms.keys()) {
+        const remainingSockets = (await io.in(room).fetchSockets()).filter(peer => peer.id !== socket.id);
+        if (!remainingSockets.some(peer => (peer.data.user as { id: string }).id === userId)) {
+          socket.to(room).emit('call:participant-left', { userId });
+        }
       }
     });
   });
