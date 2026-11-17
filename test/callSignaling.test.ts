@@ -58,3 +58,8 @@ test('call decline notifications are sent only to the caller currently in the is
   assert.match(source, /const callers = await io\.in\(room\)\.fetchSockets\(\)/);
   assert.match(source, /callers\.some\(peer => \(peer\.data\.user as \{ id: string \}\)\.id === raw\.callerId\)/);
 });
+
+test('call invitations require the sender to have joined that exact call session', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /!joinedRooms\.has\(roomName\(raw\)\) \|\| !\(await canJoinCall\(prisma, userId, raw\)\)/);
+});
