@@ -64,7 +64,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
       try {
         const room = raw && validId(raw.roomId) && validId(raw.callId) && ['conversation', 'group'].includes(raw.scope)
           ? roomName(raw) : '';
-        if (!room || joinedRooms.get(room) !== raw.roomId || !(await canJoinCall(prisma, userId, raw))) {
+        if (!room || joinedRooms.get(room) !== raw.roomId || !socket.rooms.has(room) || !(await canJoinCall(prisma, userId, raw))) {
           acknowledge?.({ ok: false, error: 'You are not allowed to invite people to this call.' });
           return;
         }
@@ -138,7 +138,7 @@ export function attachCallSignaling(io: Server, prisma: PrismaClient) {
           return;
         }
         const room = roomName(raw);
-        if (joinedRooms.get(room) !== raw.roomId) {
+        if (joinedRooms.get(room) !== raw.roomId || !socket.rooms.has(room)) {
           acknowledge?.({ ok: false, error: 'Join the call before sending signals.' });
           return;
         }
