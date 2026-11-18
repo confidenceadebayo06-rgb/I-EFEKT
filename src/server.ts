@@ -368,6 +368,80 @@ app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => {
   }
 });
 
+
+// International Circles: membership is granted only after owner approval.
+app.get('/api/circles', { preHandler: auth }, async (req) => {
+  const country = String((req.query as any)?.country || '').toUpperCase();
+  const category = String((req.query as any)?.category || '').trim();
+  const circles = await prisma.circle.findMany({
+    where: { ...(country && /^[A-Z]{2}$/.test(country) ? { countryCode: country } : {}), ...(category ? { category } : {}) },
+    include: { owner: { select: { id: true, handle: true, displayName: true } }, _count: { select: { members: true, joinRequests: true } },
+      members: { where: { userId: req.user!.id }, select: { id: true } },
+      joinRequests: { where: { userId: req.user!.id }, select: { status: true } } },
+    orderBy: [{ countryName: 'asc' }, { name: 'asc' }], take: 200
+  });
+  return { circles: circles.map(c => ({ id:c.id, name:c.name, description:c.description, category:c.category, countryCode:c.countryCode, countryName:c.countryName, region:c.region, owner:c.owner, membersCount:c._count.members, isOwner:c.ownerId===req.user!.id, isMember:c.members.length>0, requestStatus:c.joinRequests[0]?.status || null })) };
+});
+app.post('/api/circles', { preHandler: auth }, async (req, reply) => {
+  const p=z.object({name:z.string().trim().min(3).max(100),description:z.string().trim().max(1200).default(''),category:z.string().trim().min(2).max(60).default('General'),countryCode:z.string().regex(/^[A-Za-z]{2}$/),countryName:z.string().trim().min(2).max(100),region:z.string().trim().max(100).optional()}).safeParse(req.body);
+  if(!p.success) return reply.code(400).send({error:'Provide a Circle name, category and valid country.'});
+  const circle=await prisma.circle.create({data:{...p.data,countryCode:p.data.countryCode.toUpperCase(),ownerId:req.user!.id,members:{create:{userId:req.user!.id}}}});
+  return reply.code(201).send({circle});
+});
+app.post('/api/circles/:id/requests', { preHandler: auth }, async (req, reply) => {
+  const circleId=String((req.params as any).id);
+  const p=z.object({message:z.string().max(500).default('')}).safeParse(req.body||{});
+  if(!p.success) return reply.code(400).send({error:'Invalid request message.'});
+  const circle=await prisma.circle.findUnique({where:{id:circleId},select:{id:true,ownerId:true}});
+  if(!circle) return reply.code(404).send({error:'Circle not found.'});
+  if(circle.ownerId===req.user!.id) return reply.code(400).send({error:'You already own this Circle.'});
+  if(await prisma.circleMember.findUnique({where:{circleId_userId:{circleId,userId:req.user!.id}}})) return reply.code(409).send({error:'You are already a member.'});
+  const existing=await prisma.circleJoinRequest.findUnique({where:{circleId_userId:{circleId,userId:req.user!.id}}});
+  if(existing?.status==='PENDING') return reply.code(409).send({error:'Your request is already pending.'});
+  const request=existing
+    ? await prisma.circleJoinRequest.update({where:{id:existing.id},data:{status:'PENDING',message:p.data.message,createdAt:new Date(),reviewedAt:null}})
+    : await prisma.circleJoinRequest.create({data:{circleId,userId:req.user!.id,message:p.data.message}});
+  return reply.code(201).send({request:{id:request.id,status:request.status}});
+});
+app.get('/api/circles/owner/requests', { preHandler: auth }, async (req) => {
+  const requests=await prisma.circleJoinRequest.findMany({where:{status:'PENDING',circle:{ownerId:req.user!.id}},include:{circle:{select:{id:true,name:true,countryName:true}},user:{select:{id:true,handle:true,displayName:true,avatarUrl:true}}},orderBy:{createdAt:'asc'},take:200});
+  return {requests:requests.map(r=>({id:r.id,circle:{id:r.circle.id,name:r.circle.name,countryName:r.circle.countryName},applicant:r.user,message:r.message,createdAt:r.createdAt}))};
+});
+app.post('/api/circles/owner/requests/:id/approve', { preHandler: auth }, async (req, reply) => {
+  const id=String((req.params as any).id);
+  try {
+    const result=await prisma.$transaction(async tx=>{
+      const request=await tx.circleJoinRequest.findUnique({where:{id},include:{circle:true}});
+      if(!request) return {error:'Request not found.',code:404};
+      if(request.circle.ownerId!==req.user!.id) return {error:'Only this Circle owner can review requests.',code:403};
+      if(request.status!=='PENDING') return {error:'This request has already been reviewed.',code:409};
+      await tx.circleMember.upsert({where:{circleId_userId:{circleId:request.circleId,userId:request.userId}},create:{circleId:request.circleId,userId:request.userId},update:{}});
+      await tx.circleJoinRequest.update({where:{id},data:{status:'APPROVED',reviewedAt:new Date()}});
+      return {ok:true};
+    });
+    if('error' in result) return reply.code(result.code ?? 409).send({error:result.error});
+    return result;
+  } catch { return reply.code(409).send({error:'Could not approve this request. Refresh and try again.'}); }
+});
+app.post('/api/circles/owner/requests/:id/reject', { preHandler: auth }, async (req, reply) => {
+  const id=String((req.params as any).id);
+  const request=await prisma.circleJoinRequest.findUnique({where:{id},include:{circle:true}});
+  if(!request) return reply.code(404).send({error:'Request not found.'});
+  if(request.circle.ownerId!==req.user!.id) return reply.code(403).send({error:'Only this Circle owner can review requests.'});
+  if(request.status!=='PENDING') return reply.code(409).send({error:'This request has already been reviewed.'});
+  await prisma.circleJoinRequest.update({where:{id},data:{status:'REJECTED',reviewedAt:new Date()}});
+  return {ok:true};
+});
+app.delete('/api/circles/:id/membership', { preHandler: auth }, async (req, reply) => {
+  const circleId=String((req.params as any).id);
+  const circle=await prisma.circle.findUnique({where:{id:circleId},select:{ownerId:true}});
+  if(!circle) return reply.code(404).send({error:'Circle not found.'});
+  if(circle.ownerId===req.user!.id) return reply.code(400).send({error:'Circle owners cannot leave their own Circle. Transfer ownership or delete it first.'});
+  await prisma.circleMember.deleteMany({where:{circleId,userId:req.user!.id}});
+  await prisma.circleJoinRequest.deleteMany({where:{circleId,userId:req.user!.id,status:'APPROVED'}});
+  return {ok:true};
+});
+
 app.get('/api/communities', { preHandler: auth }, async () => ({ communities: await prisma.community.findMany({ include: { _count: { select: { members: true } } }, orderBy: { name: 'asc' } }) }));
 app.post('/api/communities/:id/join', { preHandler: auth }, async (req, reply) => { const communityId = (req.params as any).id; try { await prisma.communityMember.create({ data: { communityId, userId: req.user!.id } }); } catch { return reply.code(409).send({ error: 'Already a member or community not found.' }); } return { joined: true }; });
 app.post('/api/communities/:id/leave', { preHandler: auth }, async (req) => { await prisma.communityMember.deleteMany({ where: { communityId: (req.params as any).id, userId: req.user!.id } }); return { joined: false }; });

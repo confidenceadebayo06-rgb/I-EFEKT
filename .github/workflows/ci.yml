@@ -3,9 +3,9 @@ name: I-EFEKT CI
 
 on:
   push:
-    branches: [main, feat/webrtc-video-calls]
+    branches: [main, staging, feat/webrtc-video-calls]
   pull_request:
-    branches: [main]
+    branches: [main, staging]
 
 jobs:
   build-and-mysql:
