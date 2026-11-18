@@ -379,3 +379,13 @@ test('social feed returns each post author follow state independently of ranking
   assert.ok(route.includes('prisma.follow.findMany({ where: { followerId: req.user!.id }'));
   assert.ok(route.includes('affinity: preference?.enabled && followed.has(post.userId) ? 1 : 0'));
 });
+
+test('Circle discovery rejects malformed country codes and overlong categories instead of silently returning unfiltered results', () => {
+  const source = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8');
+  const start = source.indexOf("app.get('/api/circles'");
+  const end = source.indexOf("app.post('/api/circles'", start);
+  const route = source.slice(start, end);
+  assert.match(route, /z\.object\(\{ country: z\.string\(\)\.regex\(\/\^\[A-Za-z\]\{2\}\$\/\)\.optional\(\), category: z\.string\(\)\.trim\(\)\.max\(60\)\.optional\(\) \}\)\.safeParse\(req\.query\)/);
+  assert.match(route, /if \(!filters\.success\) return reply\.code\(400\)/);
+  assert.match(route, /const country = \(filters\.data\.country \|\| ''\)\.toUpperCase\(\)/);
+});
