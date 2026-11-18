@@ -419,7 +419,7 @@ app.post('/api/circles/owner/requests/:id/approve', { preHandler: auth }, async 
       await tx.circleJoinRequest.update({where:{id},data:{status:'APPROVED',reviewedAt:new Date()}});
       return {ok:true};
     });
-    if('error' in result) return reply.code(result.code).send({error:result.error});
+    if('error' in result) return reply.code(result.code ?? 409).send({error:result.error});
     return result;
   } catch { return reply.code(409).send({error:'Could not approve this request. Refresh and try again.'}); }
 });
