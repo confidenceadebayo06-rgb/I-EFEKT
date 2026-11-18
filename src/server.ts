@@ -203,7 +203,7 @@ app.get('/api/users/discover', { preHandler: auth }, async (req) => {
     orderBy: { createdAt: 'desc' },
     select: {
       id: true, handle: true, displayName: true, bio: true, avatarUrl: true,
-      _count: { select: { posts: true, followers: true } }
+      _count: { select: { posts: true, followsIn: true } }
     }
   });
   const follows = await prisma.follow.findMany({
@@ -214,7 +214,7 @@ app.get('/api/users/discover', { preHandler: auth }, async (req) => {
   return { users: users.map(user => ({
     id: user.id, handle: user.handle, displayName: user.displayName,
     bio: user.bio, avatarUrl: user.avatarUrl,
-    postsCount: user._count.posts, followersCount: user._count.followers,
+    postsCount: user._count.posts, followersCount: user._count.followsIn,
     following: following.has(user.id)
   })) };
 });
@@ -224,7 +224,7 @@ app.get('/api/users/:id/profile', { preHandler: auth }, async (req, reply) => {
     where: { id },
     select: {
       id: true, handle: true, displayName: true, bio: true, avatarUrl: true,
-      createdAt: true, _count: { select: { posts: true, followers: true } }
+      createdAt: true, _count: { select: { posts: true, followsIn: true } }
     }
   });
   if (!user) return reply.code(404).send({ error: 'Creator not found.' });
@@ -236,7 +236,7 @@ app.get('/api/users/:id/profile', { preHandler: auth }, async (req, reply) => {
     prisma.follow.findUnique({ where: { followerId_followingId: { followerId: req.user!.id, followingId: id } }, select: { id: true } })
   ]);
   return {
-    user: { id: user.id, handle: user.handle, displayName: user.displayName, bio: user.bio, avatarUrl: user.avatarUrl, postsCount: user._count.posts, followersCount: user._count.followers, following: !!follow },
+    user: { id: user.id, handle: user.handle, displayName: user.displayName, bio: user.bio, avatarUrl: user.avatarUrl, postsCount: user._count.posts, followersCount: user._count.followsIn, following: !!follow },
     posts: posts.map(post => ({ postId: post.id, mediaUrl: post.mediaUrl, mediaType: post.mediaType, caption: post.caption, createdAt: post.createdAt, likes: post._count.likes, commentsCount: post._count.comments, liked: post.likes.length > 0 }))
   };
 });
