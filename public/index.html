@@ -2339,6 +2339,7 @@
     loadPreferenceModel();
     restoreToolkitState();
     renderStories();
+    reelsData = []; // Never flash hard-coded sample creators while the authenticated feed loads.
     renderFeed();
     renderSpaces();
     renderDMs();
