@@ -370,9 +370,11 @@ app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => {
 
 
 // International Circles: membership is granted only after owner approval.
-app.get('/api/circles', { preHandler: auth }, async (req) => {
-  const country = String((req.query as any)?.country || '').toUpperCase();
-  const category = String((req.query as any)?.category || '').trim();
+app.get('/api/circles', { preHandler: auth }, async (req, reply) => {
+  const filters = z.object({ country: z.string().regex(/^[A-Za-z]{2}$/).optional(), category: z.string().trim().max(60).optional() }).safeParse(req.query);
+  if (!filters.success) return reply.code(400).send({ error: 'Use a valid two-letter country code and a category of 60 characters or fewer.' });
+  const country = (filters.data.country || '').toUpperCase();
+  const category = filters.data.category || '';
   const circles = await prisma.circle.findMany({
     where: { ...(country && /^[A-Z]{2}$/.test(country) ? { countryCode: country } : {}), ...(category ? { category } : {}) },
     include: { owner: { select: { id: true, handle: true, displayName: true } }, _count: { select: { members: true, joinRequests: true } },
