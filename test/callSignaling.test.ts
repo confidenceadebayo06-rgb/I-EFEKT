@@ -376,6 +376,6 @@ test('social feed returns each post author follow state independently of ranking
   const end = source.indexOf("app.get('/api/feed/ranked'", start);
   const route = source.slice(start, end);
   assert.ok(route.includes('following: followed.has(p.userId)'));
-  assert.ok(route.includes('prisma.follow.findMany({ where: { followerId: req.user!.id }')));
+  assert.ok(route.includes('prisma.follow.findMany({ where: { followerId: req.user!.id }'));
   assert.ok(route.includes('affinity: preference?.enabled && followed.has(post.userId) ? 1 : 0'));
 });
