@@ -22,5 +22,6 @@ test('Circle rejection uses a conditional pending-state update and reports revie
   assert.ok(start >= 0 && end > start, 'expected Circle rejection route');
   const route = source.slice(start, end);
   assert.match(route, /updateMany\(\{where:\{id,status:'PENDING'\},data:\{status:'REJECTED'/);
-  assert.match(route, /if\(!result\.count\) return reply\.code\(409\)/);
+  assert.match(route, /if\(!changed\.count\) return false/);
+  assert.match(route, /if\(!result\) return reply\.code\(409\)/);
 });

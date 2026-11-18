@@ -31,6 +31,7 @@ model User {
   circleMemberships CircleMember[]
   ownedCircles Circle[] @relation("CircleOwner")
   circleJoinRequests CircleJoinRequest[]
+  notifications UserNotification[]
   challengeEntries ChallengeEntry[]
   reports Report[]
   syncChanges SyncChange[]
@@ -312,4 +313,17 @@ model CircleJoinRequest {
   @@unique([circleId, userId])
   @@index([circleId, status, createdAt])
   @@index([userId, status])
+}
+
+model UserNotification {
+  id String @id @default(cuid())
+  userId String
+  type String @db.VarChar(40)
+  title String @db.VarChar(120)
+  body String @db.VarChar(500)
+  link String? @db.VarChar(255)
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, readAt, createdAt])
 }
