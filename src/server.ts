@@ -196,6 +196,51 @@ app.get('/api/me/export', { preHandler: auth }, async (req) => { const user = aw
 app.get('/api/preferences', { preHandler: auth }, async (req) => { const p = await prisma.preference.findUnique({ where: { userId: req.user!.id } }); return { enabled: p?.enabled ?? false, preferences: p?.preferences ?? {} }; });
 app.put('/api/preferences', { preHandler: auth }, async (req) => { const body = req.body as any; const p = await prisma.preference.upsert({ where: { userId: req.user!.id }, create: { userId: req.user!.id, enabled: !!body.enabled, preferences: body.preferences || {} }, update: { enabled: !!body.enabled, preferences: body.preferences || {} } }); return { enabled: p.enabled, preferences: p.preferences }; });
 app.get('/api/users/search', { preHandler: auth }, async (req) => { const q = String((req.query as any).q || '').trim(); if (q.length < 2) return { users: [] }; const users = await prisma.user.findMany({ where: { id: { not: req.user!.id }, OR: [{ handle: { contains: q } }, { displayName: { contains: q } }] }, take: 20, select: { id: true, handle: true, displayName: true, avatarUrl: true } }); return { users: users.map(u => ({ ...u, display_name: u.displayName })) }; });
+app.get('/api/users/discover', { preHandler: auth }, async (req) => {
+  const users = await prisma.user.findMany({
+    where: { id: { not: req.user!.id } },
+    take: 40,
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, handle: true, displayName: true, bio: true, avatarUrl: true,
+      _count: { select: { posts: true, followers: true } }
+    }
+  });
+  const follows = await prisma.follow.findMany({
+    where: { followerId: req.user!.id, followingId: { in: users.map(user => user.id) } },
+    select: { followingId: true }
+  });
+  const following = new Set(follows.map(follow => follow.followingId));
+  return { users: users.map(user => ({
+    id: user.id, handle: user.handle, displayName: user.displayName,
+    bio: user.bio, avatarUrl: user.avatarUrl,
+    postsCount: user._count.posts, followersCount: user._count.followers,
+    following: following.has(user.id)
+  })) };
+});
+app.get('/api/users/:id/profile', { preHandler: auth }, async (req, reply) => {
+  const id = String((req.params as any).id);
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true, handle: true, displayName: true, bio: true, avatarUrl: true,
+      createdAt: true, _count: { select: { posts: true, followers: true } }
+    }
+  });
+  if (!user) return reply.code(404).send({ error: 'Creator not found.' });
+  const [posts, follow] = await Promise.all([
+    prisma.post.findMany({
+      where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 60,
+      include: { _count: { select: { likes: true, comments: true } }, likes: { where: { userId: req.user!.id }, select: { id: true } } }
+    }),
+    prisma.follow.findUnique({ where: { followerId_followingId: { followerId: req.user!.id, followingId: id } }, select: { id: true } })
+  ]);
+  return {
+    user: { id: user.id, handle: user.handle, displayName: user.displayName, bio: user.bio, avatarUrl: user.avatarUrl, postsCount: user._count.posts, followersCount: user._count.followers, following: !!follow },
+    posts: posts.map(post => ({ postId: post.id, mediaUrl: post.mediaUrl, mediaType: post.mediaType, caption: post.caption, createdAt: post.createdAt, likes: post._count.likes, commentsCount: post._count.comments, liked: post.likes.length > 0 }))
+  };
+});
+
 
 app.get('/api/feed', { preHandler: auth }, async (req) => {
   const candidates = await prisma.post.findMany({ take: 250, orderBy: { createdAt: 'desc' }, include: { user: true, likes: { where: { userId: req.user!.id } }, _count: { select: { likes: true, comments: true } } } });
