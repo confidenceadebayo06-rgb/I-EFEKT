@@ -417,8 +417,9 @@ app.post('/api/circles/owner/requests/:id/approve', { preHandler: auth }, async 
       if(!request) return {error:'Request not found.',code:404};
       if(request.circle.ownerId!==req.user!.id) return {error:'Only this Circle owner can review requests.',code:403};
       if(request.status!=='PENDING') return {error:'This request has already been reviewed.',code:409};
+      const claimed=await tx.circleJoinRequest.updateMany({where:{id,status:'PENDING'},data:{status:'APPROVED',reviewedAt:new Date()}});
+      if(!claimed.count) return {error:'This request has already been reviewed.',code:409};
       await tx.circleMember.upsert({where:{circleId_userId:{circleId:request.circleId,userId:request.userId}},create:{circleId:request.circleId,userId:request.userId},update:{}});
-      await tx.circleJoinRequest.update({where:{id},data:{status:'APPROVED',reviewedAt:new Date()}});
       return {ok:true};
     });
     if('error' in result) return reply.code(result.code ?? 409).send({error:result.error});
@@ -431,7 +432,8 @@ app.post('/api/circles/owner/requests/:id/reject', { preHandler: auth }, async (
   if(!request) return reply.code(404).send({error:'Request not found.'});
   if(request.circle.ownerId!==req.user!.id) return reply.code(403).send({error:'Only this Circle owner can review requests.'});
   if(request.status!=='PENDING') return reply.code(409).send({error:'This request has already been reviewed.'});
-  await prisma.circleJoinRequest.update({where:{id},data:{status:'REJECTED',reviewedAt:new Date()}});
+  const result=await prisma.circleJoinRequest.updateMany({where:{id,status:'PENDING'},data:{status:'REJECTED',reviewedAt:new Date()}});
+  if(!result.count) return reply.code(409).send({error:'This request has already been reviewed.'});
   return {ok:true};
 });
 app.delete('/api/circles/:id/membership', { preHandler: auth }, async (req, reply) => {
