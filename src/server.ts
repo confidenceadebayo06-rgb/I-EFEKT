@@ -231,13 +231,13 @@ app.get('/api/users/:id/profile', { preHandler: auth }, async (req, reply) => {
   const [posts, follow] = await Promise.all([
     prisma.post.findMany({
       where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 60,
-      include: { _count: { select: { likes: true, comments: true } }, likes: { where: { userId: req.user!.id }, select: { id: true } } }
+      include: { _count: { select: { likes: true, comments: true } }, likes: { where: { userId: req.user!.id }, select: { id: true } }, comments: { orderBy: { createdAt: 'desc' }, take: 3, include: { user: { select: { handle: true, displayName: true } } } } }
     }),
     prisma.follow.findUnique({ where: { followerId_followingId: { followerId: req.user!.id, followingId: id } }, select: { id: true } })
   ]);
   return {
     user: { id: user.id, handle: user.handle, displayName: user.displayName, bio: user.bio, avatarUrl: user.avatarUrl, postsCount: user._count.posts, followersCount: user._count.followsIn, following: !!follow },
-    posts: posts.map(post => ({ postId: post.id, mediaUrl: post.mediaUrl, mediaType: post.mediaType, caption: post.caption, createdAt: post.createdAt, likes: post._count.likes, commentsCount: post._count.comments, liked: post.likes.length > 0 }))
+    posts: posts.map(post => ({ postId: post.id, mediaUrl: post.mediaUrl, mediaType: post.mediaType, caption: post.caption, createdAt: post.createdAt, likes: post._count.likes, commentsCount: post._count.comments, liked: post.likes.length > 0, comments: post.comments.map(comment => ({ id: comment.id, body: comment.body, author: comment.user.displayName || comment.user.handle, createdAt: comment.createdAt })) }))
   };
 });
 
