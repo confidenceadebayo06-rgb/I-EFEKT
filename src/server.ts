@@ -410,18 +410,20 @@ app.post('/api/circles/:id/requests', { preHandler: auth }, async (req, reply) =
   const circleId=String((req.params as any).id);
   const p=z.object({message:z.string().max(500).default('')}).safeParse(req.body||{});
   if(!p.success) return reply.code(400).send({error:'Invalid request message.'});
-  const circle=await prisma.circle.findUnique({where:{id:circleId},select:{id:true,ownerId:true}});
+  const circle=await prisma.circle.findUnique({where:{id:circleId},select:{id:true,name:true,ownerId:true}});
   if(!circle) return reply.code(404).send({error:'Circle not found.'});
   if(circle.ownerId===req.user!.id) return reply.code(400).send({error:'You already own this Circle.'});
   if(await prisma.circleMember.findUnique({where:{circleId_userId:{circleId,userId:req.user!.id}}})) return reply.code(409).send({error:'You are already a member.'});
   const existing=await prisma.circleJoinRequest.findUnique({where:{circleId_userId:{circleId,userId:req.user!.id}}});
   if(existing?.status==='PENDING') return reply.code(409).send({error:'Your request is already pending.'});
-  const request=existing
-    ? await prisma.circleJoinRequest.update({where:{id:existing.id},data:{status:'PENDING',message:p.data.message,createdAt:new Date(),reviewedAt:null}})
-    : await prisma.circleJoinRequest.create({data:{circleId,userId:req.user!.id,message:p.data.message}});
-  const applicant = await prisma.user.findUnique({where:{id:req.user!.id},select:{handle:true,displayName:true}});
-  const circleDetails = await prisma.circle.findUnique({where:{id:circleId},select:{name:true}});
-  await prisma.userNotification.create({data:{userId:circle.ownerId,type:'CIRCLE_JOIN_REQUEST',title:'New Circle join request',body:`@${applicant?.handle || 'A creator'} requested to join ${circleDetails?.name || 'your Circle'}.`,link:'/communities'}});
+  const applicant = await prisma.user.findUnique({where:{id:req.user!.id},select:{handle:true}});
+  const request = await prisma.$transaction(async tx => {
+    const saved = existing
+      ? await tx.circleJoinRequest.update({where:{id:existing.id},data:{status:'PENDING',message:p.data.message,createdAt:new Date(),reviewedAt:null}})
+      : await tx.circleJoinRequest.create({data:{circleId,userId:req.user!.id,message:p.data.message}});
+    await tx.userNotification.create({data:{userId:circle.ownerId,type:'CIRCLE_JOIN_REQUEST',title:'New Circle join request',body:`@${applicant?.handle || 'A creator'} requested to join ${circle.name}.`,link:'/communities'}});
+    return saved;
+  });
   return reply.code(201).send({request:{id:request.id,status:request.status}});
 });
 app.get('/api/circles/owner/requests', { preHandler: auth }, async (req) => {
