@@ -1,8 +1,9 @@
 name: I-EFEKT CI
+# CI verifies schema, automated tests, browser inline-script syntax, and the application build.
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/webrtc-video-calls]
   pull_request:
     branches: [main]
 
@@ -39,5 +40,7 @@ jobs:
         run: npx prisma generate
       - name: Apply schema to CI MySQL
         run: npx prisma db push
+      - name: Run automated tests
+        run: npm test
       - name: Build TypeScript and C++ ranking engine
         run: npm run build

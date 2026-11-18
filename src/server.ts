@@ -4,6 +4,8 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { attachCallSignaling, createIceServersForClient } from './callSignaling.js';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { Redis } from 'ioredis';
@@ -11,7 +13,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -19,15 +21,21 @@ import { CppRankingEngine } from './engine/CppRankingEngine.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
-const s3 = new S3Client({ region: process.env.S3_REGION || 'us-east-1', endpoint: process.env.S3_ENDPOINT || undefined, forcePathStyle: !!process.env.S3_ENDPOINT, credentials: process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY ? { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY } : undefined });
+const s3 = new S3Client({ region: process.env.S3_REGION || (process.env.S3_ENDPOINT ? 'auto' : 'us-east-1'), endpoint: process.env.S3_ENDPOINT || undefined, forcePathStyle: !!process.env.S3_ENDPOINT, credentials: process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY ? { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY } : undefined });
 const mediaBucket = process.env.S3_BUCKET || 'iefekt-media';
-const app = Fastify({ logger: true, bodyLimit: 12 * 1024 * 1024 });
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) throw new Error('TRUST_PROXY_HOPS must be a non-negative integer.');
+const trustProxy: boolean | ((address: string, hop: number) => boolean) = trustProxyHops > 0 ? (_address, hop) => hop < trustProxyHops : false;
+const app = Fastify({ logger: true, trustProxy, bodyLimit: 12 * 1024 * 1024 });
 const port = Number(process.env.PORT || 3000);
 const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'development-only-change-me-please-32chars');
 if (process.env.NODE_ENV === 'production' && secret.length < 32) throw new Error('JWT_SECRET must be configured with at least 32 characters in production.');
 if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) throw new Error('REDIS_URL must be configured in production.');
 const limiterRedis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
 await limiterRedis.connect();
+const socketPubClient = limiterRedis.duplicate();
+const socketSubClient = limiterRedis.duplicate();
+await Promise.all([socketPubClient.connect(), socketSubClient.connect()]);
 const origin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const cookieName = 'iefekt_session';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -52,7 +60,7 @@ app.addHook('onSend', async (_req, reply, payload) => {
   reply.header('X-Content-Type-Options', 'nosniff');
   reply.header('X-Frame-Options', 'DENY');
   reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-  reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  reply.header('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
   reply.header('Cross-Origin-Opener-Policy', 'same-origin');
   return payload;
 });
@@ -188,18 +196,65 @@ app.get('/api/me/export', { preHandler: auth }, async (req) => { const user = aw
 app.get('/api/preferences', { preHandler: auth }, async (req) => { const p = await prisma.preference.findUnique({ where: { userId: req.user!.id } }); return { enabled: p?.enabled ?? false, preferences: p?.preferences ?? {} }; });
 app.put('/api/preferences', { preHandler: auth }, async (req) => { const body = req.body as any; const p = await prisma.preference.upsert({ where: { userId: req.user!.id }, create: { userId: req.user!.id, enabled: !!body.enabled, preferences: body.preferences || {} }, update: { enabled: !!body.enabled, preferences: body.preferences || {} } }); return { enabled: p.enabled, preferences: p.preferences }; });
 app.get('/api/users/search', { preHandler: auth }, async (req) => { const q = String((req.query as any).q || '').trim(); if (q.length < 2) return { users: [] }; const users = await prisma.user.findMany({ where: { id: { not: req.user!.id }, OR: [{ handle: { contains: q } }, { displayName: { contains: q } }] }, take: 20, select: { id: true, handle: true, displayName: true, avatarUrl: true } }); return { users: users.map(u => ({ ...u, display_name: u.displayName })) }; });
+app.get('/api/users/discover', { preHandler: auth }, async (req) => {
+  const users = await prisma.user.findMany({
+    where: { id: { not: req.user!.id } },
+    take: 40,
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, handle: true, displayName: true, bio: true, avatarUrl: true,
+      _count: { select: { posts: true, followsIn: true } }
+    }
+  });
+  const follows = await prisma.follow.findMany({
+    where: { followerId: req.user!.id, followingId: { in: users.map(user => user.id) } },
+    select: { followingId: true }
+  });
+  const following = new Set(follows.map(follow => follow.followingId));
+  return { users: users.map(user => ({
+    id: user.id, handle: user.handle, displayName: user.displayName,
+    bio: user.bio, avatarUrl: user.avatarUrl,
+    postsCount: user._count.posts, followersCount: user._count.followsIn,
+    following: following.has(user.id)
+  })) };
+});
+app.get('/api/users/:id/profile', { preHandler: auth }, async (req, reply) => {
+  const id = String((req.params as any).id);
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true, handle: true, displayName: true, bio: true, avatarUrl: true,
+      createdAt: true, _count: { select: { posts: true, followsIn: true } }
+    }
+  });
+  if (!user) return reply.code(404).send({ error: 'Creator not found.' });
+  const [posts, follow] = await Promise.all([
+    prisma.post.findMany({
+      where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 60,
+      include: { _count: { select: { likes: true, comments: true } }, likes: { where: { userId: req.user!.id }, select: { id: true } }, comments: { orderBy: { createdAt: 'desc' }, take: 3, include: { user: { select: { handle: true, displayName: true } } } } }
+    }),
+    prisma.follow.findUnique({ where: { followerId_followingId: { followerId: req.user!.id, followingId: id } }, select: { id: true } })
+  ]);
+  return {
+    user: { id: user.id, handle: user.handle, displayName: user.displayName, bio: user.bio, avatarUrl: user.avatarUrl, postsCount: user._count.posts, followersCount: user._count.followsIn, following: !!follow },
+    posts: posts.map(post => ({ postId: post.id, mediaUrl: post.mediaUrl, mediaType: post.mediaType, caption: post.caption, createdAt: post.createdAt, likes: post._count.likes, commentsCount: post._count.comments, liked: post.likes.length > 0, comments: post.comments.map(comment => ({ id: comment.id, body: comment.body, author: comment.user.displayName || comment.user.handle, createdAt: comment.createdAt })) }))
+  };
+});
+
 
 app.get('/api/feed', { preHandler: auth }, async (req) => {
-  const candidates = await prisma.post.findMany({ take: 250, orderBy: { createdAt: 'desc' }, include: { user: true, likes: { where: { userId: req.user!.id } }, _count: { select: { likes: true, comments: true } } } });
+  const [candidates, preference, follows] = await Promise.all([
+    prisma.post.findMany({ take: 250, orderBy: { createdAt: 'desc' }, include: { user: true, likes: { where: { userId: req.user!.id } }, _count: { select: { likes: true, comments: true } } } }),
+    prisma.preference.findUnique({ where: { userId: req.user!.id }, select: { enabled: true } }),
+    prisma.follow.findMany({ where: { followerId: req.user!.id }, select: { followingId: true } })
+  ]);
+  const followed = new Set(follows.map(f => f.followingId));
   let ordered = candidates;
   if (rankingEngine.status().available && candidates.length) {
     try {
-      const preference = await prisma.preference.findUnique({ where: { userId: req.user!.id }, select: { enabled: true } });
-      const follows = preference?.enabled ? await prisma.follow.findMany({ where: { followerId: req.user!.id }, select: { followingId: true } }) : [];
-      const followed = new Set(follows.map(f => f.followingId));
       const now = Date.now();
       const features = candidates.map(post => ({
-        affinity: followed.has(post.userId) ? 1 : 0,
+        affinity: preference?.enabled && followed.has(post.userId) ? 1 : 0,
         freshness: Math.exp(-Math.max(0, now - post.createdAt.getTime()) / 129600000),
         engagement: Math.min(1, Math.log1p(post._count.likes * 2 + post._count.comments) / Math.log1p(500)),
         completion: 0.5,
@@ -209,8 +264,7 @@ app.get('/api/feed', { preHandler: auth }, async (req) => {
       ordered = indexes.flatMap(index => candidates[index] ? [candidates[index]!] : []);
     } catch (error) { req.log.warn({ error }, 'C++ ranking failed; using chronological feed'); }
   }
-  const preference = await prisma.preference.findUnique({ where: { userId: req.user!.id }, select: { enabled: true } });
-  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0 })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
+  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0, following: followed.has(p.userId) })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
 });
 app.get('/api/feed/ranked', { preHandler: auth }, async (req, reply) => {
   const [candidates, preference] = await Promise.all([
@@ -234,9 +288,9 @@ app.get('/api/feed/ranked', { preHandler: auth }, async (req, reply) => {
   } catch (error) { req.log.error(error); return reply.code(503).send({ error: 'C++ ranking request failed.' }); }
 });
 app.post('/api/posts', { preHandler: auth }, async (req, reply) => { const p = z.object({ mediaUrl: z.string().url(), mediaType: z.string().default('video'), caption: z.string().max(2200).optional(), genre: z.string().optional(), track: z.string().optional(), originalAudio: z.boolean().optional(), filter: z.string().optional(), speed: z.number().min(.25).max(4).optional() }).safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Invalid post data. A media URL is required.' }); const post = await prisma.post.create({ data: { ...p.data, userId: req.user!.id } }); await emitSync(req.user!.id, 'post', post.id); io.emit('feed:post-created', { postId: post.id }); return reply.code(201).send({ postId: post.id }); });
-app.post('/api/posts/:id/like', { preHandler: auth }, async (req, reply) => { const postId = (req.params as any).id; const exists = await prisma.like.findUnique({ where: { userId_postId: { userId: req.user!.id, postId } } }); if (exists) await prisma.like.delete({ where: { id: exists.id } }); else await prisma.like.create({ data: { userId: req.user!.id, postId } }); await emitSync(req.user!.id, 'like', postId); return { liked: !exists }; });
-app.post('/api/posts/:id/comments', { preHandler: auth }, async (req, reply) => { const body = String((req.body as any)?.body || '').trim(); if (!body || body.length > 1000) return reply.code(400).send({ error: 'Comment must be 1–1000 characters.' }); const comment = await prisma.comment.create({ data: { userId: req.user!.id, postId: (req.params as any).id, body } }); return reply.code(201).send({ comment }); });
-app.post('/api/users/:id/follow', { preHandler: auth }, async (req, reply) => { const followingId = (req.params as any).id; if (followingId === req.user!.id) return reply.code(400).send({ error: 'You cannot follow yourself.' }); const where = { followerId_followingId: { followerId: req.user!.id, followingId } }; const existing = await prisma.follow.findUnique({ where }); if (existing) await prisma.follow.delete({ where: { id: existing.id } }); else await prisma.follow.create({ data: { followerId: req.user!.id, followingId } }); await emitSync(req.user!.id, 'follow', followingId); return { following: !existing }; });
+app.post('/api/posts/:id/like', { preHandler: auth }, async (req, reply) => { const postId = String((req.params as any).id); const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } }); if (!post) return reply.code(404).send({ error: 'Post not found.' }); const exists = await prisma.like.findUnique({ where: { userId_postId: { userId: req.user!.id, postId } } }); if (exists) await prisma.like.delete({ where: { id: exists.id } }); else await prisma.like.create({ data: { userId: req.user!.id, postId } }); await emitSync(req.user!.id, 'like', postId); return { liked: !exists }; });
+app.post('/api/posts/:id/comments', { preHandler: auth }, async (req, reply) => { const postId = String((req.params as any).id); const body = String((req.body as any)?.body || '').trim(); if (!body || body.length > 1000) return reply.code(400).send({ error: 'Comment must be 1–1000 characters.' }); const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } }); if (!post) return reply.code(404).send({ error: 'Post not found.' }); const comment = await prisma.comment.create({ data: { userId: req.user!.id, postId, body } }); return reply.code(201).send({ comment }); });
+app.post('/api/users/:id/follow', { preHandler: auth }, async (req, reply) => { const followingId = (req.params as any).id; if (followingId === req.user!.id) return reply.code(400).send({ error: 'You cannot follow yourself.' }); const targetUser = await prisma.user.findUnique({ where: { id: followingId }, select: { id: true } }); if (!targetUser) return reply.code(404).send({ error: 'Creator not found.' }); const where = { followerId_followingId: { followerId: req.user!.id, followingId } }; const existing = await prisma.follow.findUnique({ where }); if (existing) await prisma.follow.delete({ where: { id: existing.id } }); else await prisma.follow.create({ data: { followerId: req.user!.id, followingId } }); await emitSync(req.user!.id, 'follow', followingId); return { following: !existing }; });
 app.post('/api/reports', { preHandler: auth }, async (req, reply) => { const p = z.object({ postId: z.string().optional(), reason: z.string().min(2).max(60), details: z.string().max(1000).optional() }).safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Invalid report.' }); const report = await prisma.report.create({ data: { reporterId: req.user!.id, ...p.data } }); return reply.code(201).send({ reportId: report.id, status: report.status }); });
 app.get('/api/sync/changes', { preHandler: auth }, async (req) => { const after = BigInt(String((req.query as any).after || '0')); const rows = await prisma.syncChange.findMany({ where: { userId: req.user!.id, id: { gt: after } }, orderBy: { id: 'asc' }, take: 100 }); return { changes: rows.map(r => ({ cursor: r.id.toString(), entity_type: r.entityType, entity_id: r.entityId })), nextCursor: rows.at(-1)?.id.toString() || after.toString() }; });
 
@@ -270,7 +324,49 @@ app.post('/api/groups', { preHandler: auth }, async (req, reply) => { const name
 app.get('/api/groups', { preHandler: auth }, async (req) => ({ groups: await prisma.socialGroup.findMany({ where: { members: { some: { userId: req.user!.id } } }, include: { _count: { select: { members: true } } } }) }));
 app.get('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); return { messages: await prisma.groupMessage.findMany({ where: { groupId: id }, orderBy: { createdAt: 'asc' }, take: 200 }) }; });
 app.post('/api/groups/:id/messages', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); const body = String((req.body as any)?.body || '').trim(); if (!body || body.length > 4000) return reply.code(400).send({ error: 'Invalid message.' }); const m = await prisma.groupMessage.create({ data: { groupId: id, userId: req.user!.id, body } }); io.to(`group:${id}`).emit('group:message', m); return reply.code(201).send({ message: m }); });
-app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } }); if (!member) return reply.code(403).send({ error: 'Not a group member.' }); return reply.code(501).send({ error: 'Call signalling is scaffolded. Configure a WebRTC SFU or managed media provider to create a live call room.' }); });
+app.get('/api/calls/ice-config', { preHandler: auth }, async (req, reply) => {
+  const query = req.query as { roomId?: string; scope?: string; role?: string };
+  if (!query.roomId || !/^[A-Za-z0-9_-]{1,128}$/.test(query.roomId) || !['conversation', 'group'].includes(query.scope || '')) {
+    return reply.code(400).send({ error: 'A valid call room and scope are required.' });
+  }
+  const isMember = query.scope === 'conversation'
+    ? await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId: query.roomId, userId: req.user!.id } } })
+    : await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: query.roomId, userId: req.user!.id } } });
+  if (!isMember) return reply.code(403).send({ error: 'An active membership is required to obtain call network credentials.' });
+  try {
+    const config = await createIceServersForClient({ clientIp: req.ip, roomId: query.roomId, clientId: req.user!.id, role: query.role === 'receiver' ? 'receiver' : 'initiator' });
+    return config;
+  } catch (error) {
+    req.log.error({ err: error }, 'Could not obtain TURN credentials from configured provider.');
+    return reply.code(502).send({ error: 'Could not obtain secure call network credentials. Please try again.' });
+  }
+});
+app.post('/api/conversations/:id/calls', { preHandler: auth }, async (req, reply) => {
+  const id = (req.params as any).id;
+  const members = await prisma.conversationMember.findMany({ where: { conversationId: id }, select: { userId: true } });
+  if (members.length !== 2 || !members.some(member => member.userId === req.user!.id)) return reply.code(403).send({ error: 'Only members of a one-to-one conversation can start this call.' });
+  const callId = randomUUID();
+  try {
+    const config = await createIceServersForClient({ clientIp: req.ip, roomId: id, clientId: req.user!.id });
+    return { roomId: id, callId, scope: 'conversation', ...config };
+  } catch (error) {
+    req.log.error({ err: error }, 'Could not obtain TURN credentials from configured provider.');
+    return reply.code(502).send({ error: 'Could not obtain secure call network credentials. Please try again.' });
+  }
+});
+app.post('/api/groups/:id/calls', { preHandler: auth }, async (req, reply) => {
+  const id = (req.params as any).id;
+  const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: id, userId: req.user!.id } } });
+  if (!member) return reply.code(403).send({ error: 'An active group membership is required to start or join a call.' });
+  const callId = randomUUID();
+  try {
+    const config = await createIceServersForClient({ clientIp: req.ip, roomId: id, clientId: req.user!.id });
+    return { roomId: id, callId, scope: 'group', ...config, maxParticipants: 12 };
+  } catch (error) {
+    req.log.error({ err: error }, 'Could not obtain TURN credentials from configured provider.');
+    return reply.code(502).send({ error: 'Could not obtain secure call network credentials. Please try again.' });
+  }
+});
 
 app.get('/api/communities', { preHandler: auth }, async () => ({ communities: await prisma.community.findMany({ include: { _count: { select: { members: true } } }, orderBy: { name: 'asc' } }) }));
 app.post('/api/communities/:id/join', { preHandler: auth }, async (req, reply) => { const communityId = (req.params as any).id; try { await prisma.communityMember.create({ data: { communityId, userId: req.user!.id } }); } catch { return reply.code(409).send({ error: 'Already a member or community not found.' }); } return { joined: true }; });
@@ -284,7 +380,7 @@ app.post('/api/creator-tips', { preHandler: auth }, async (req, reply) => { cons
 app.post('/api/media/presign', { preHandler: auth }, async (req, reply) => {
   const p = z.object({ fileName: z.string().min(1).max(255), contentType: z.string().startsWith('video/').or(z.string().startsWith('image/')), size: z.number().int().positive().max(30 * 1024 * 1024) }).safeParse(req.body);
   if (!p.success) return reply.code(400).send({ error: 'Choose an image or video no larger than 30 MB.' });
-  if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY || !process.env.S3_PUBLIC_URL) return reply.code(503).send({ error: 'Cloud media storage is not configured. Set S3 credentials and public URL.' });
+  if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY || !process.env.S3_BUCKET || !process.env.S3_PUBLIC_URL) return reply.code(503).send({ error: 'Cloud media storage is not configured. Set S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY and S3_PUBLIC_URL; set S3_ENDPOINT for S3-compatible providers.' });
   const safeName = p.data.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
   const objectKey = `stories/${req.user!.id}/${Date.now()}-${randomBytes(8).toString('hex')}-${safeName}`;
   const asset = await prisma.mediaAsset.create({ data: { userId: req.user!.id, objectKey, contentType: p.data.contentType, size: p.data.size, status: 'pending' } });
@@ -302,11 +398,14 @@ app.post('/api/media/:id/complete', { preHandler: auth }, async (req, reply) => 
   try { const head = await s3.send(new HeadObjectCommand({ Bucket: mediaBucket, Key: asset.objectKey })); if (Number(head.ContentLength || 0) !== asset.size || head.ContentType !== asset.contentType) return reply.code(400).send({ error: 'Uploaded file validation failed.' }); }
   catch { return reply.code(400).send({ error: 'Uploaded file could not be verified in cloud storage.' }); }
   await prisma.mediaAsset.update({ where: { id }, data: { status: 'uploaded' } });
-  return { ok: true, assetId: id, publicUrl: `${(process.env.S3_PUBLIC_URL || '').replace(/\/$/, '')}/${asset.objectKey}` };
+  const mediaUrl = `${(process.env.S3_PUBLIC_URL || '').replace(/\/$/, '')}/${asset.objectKey}`;
+  return { ok: true, assetId: id, mediaUrl, publicUrl: mediaUrl };
 });
 app.post('/api/live/sessions', { preHandler: auth }, async (_req, reply) => reply.code(501).send({ error: 'Live streaming requires an RTMP/WebRTC ingest and distribution provider. The API integration point is reserved.' }));
 
 const io = new SocketServer(app.server, { cors: { origin, credentials: true } });
+io.adapter(createAdapter(socketPubClient, socketSubClient));
+attachCallSignaling(io, prisma, limiterRedis);
 io.use((socket, next) => { try { const token = socket.handshake.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.split('=').slice(1).join('='); if (!token) return next(new Error('unauthorized')); const user = jwt.verify(decodeURIComponent(token), secret) as SessionUser; socket.data.user = user; next(); } catch { next(new Error('unauthorized')); } });
 io.on('connection', socket => { const user = socket.data.user as SessionUser; socket.join(`user:${user.id}`); socket.on('conversation:join', async (conversationId: string) => { const member = await prisma.conversationMember.findUnique({ where: { conversationId_userId: { conversationId, userId: user.id } } }); if (member) socket.join(`conversation:${conversationId}`); }); socket.on('group:join', async (groupId: string) => { const member = await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: user.id } } }); if (member) socket.join(`group:${groupId}`); }); });
 
