@@ -243,16 +243,18 @@ app.get('/api/users/:id/profile', { preHandler: auth }, async (req, reply) => {
 
 
 app.get('/api/feed', { preHandler: auth }, async (req) => {
-  const candidates = await prisma.post.findMany({ take: 250, orderBy: { createdAt: 'desc' }, include: { user: true, likes: { where: { userId: req.user!.id } }, _count: { select: { likes: true, comments: true } } } });
+  const [candidates, preference, follows] = await Promise.all([
+    prisma.post.findMany({ take: 250, orderBy: { createdAt: 'desc' }, include: { user: true, likes: { where: { userId: req.user!.id } }, _count: { select: { likes: true, comments: true } } } }),
+    prisma.preference.findUnique({ where: { userId: req.user!.id }, select: { enabled: true } }),
+    prisma.follow.findMany({ where: { followerId: req.user!.id }, select: { followingId: true } })
+  ]);
+  const followed = new Set(follows.map(f => f.followingId));
   let ordered = candidates;
   if (rankingEngine.status().available && candidates.length) {
     try {
-      const preference = await prisma.preference.findUnique({ where: { userId: req.user!.id }, select: { enabled: true } });
-      const follows = preference?.enabled ? await prisma.follow.findMany({ where: { followerId: req.user!.id }, select: { followingId: true } }) : [];
-      const followed = new Set(follows.map(f => f.followingId));
       const now = Date.now();
       const features = candidates.map(post => ({
-        affinity: followed.has(post.userId) ? 1 : 0,
+        affinity: preference?.enabled && followed.has(post.userId) ? 1 : 0,
         freshness: Math.exp(-Math.max(0, now - post.createdAt.getTime()) / 129600000),
         engagement: Math.min(1, Math.log1p(post._count.likes * 2 + post._count.comments) / Math.log1p(500)),
         completion: 0.5,
@@ -262,8 +264,7 @@ app.get('/api/feed', { preHandler: auth }, async (req) => {
       ordered = indexes.flatMap(index => candidates[index] ? [candidates[index]!] : []);
     } catch (error) { req.log.warn({ error }, 'C++ ranking failed; using chronological feed'); }
   }
-  const preference = await prisma.preference.findUnique({ where: { userId: req.user!.id }, select: { enabled: true } });
-  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0 })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
+  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0, following: followed.has(p.userId) })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
 });
 app.get('/api/feed/ranked', { preHandler: auth }, async (req, reply) => {
   const [candidates, preference] = await Promise.all([
