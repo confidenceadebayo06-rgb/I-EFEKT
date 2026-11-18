@@ -314,3 +314,14 @@ test('outgoing Turnix ICE credentials label the offer-creating participant as in
     else process.env.TURNIX_API_TOKEN = previousToken;
   }
 });
+
+
+test('receiver ICE credentials require a valid room scope and current membership', () => {
+  const server = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(server, /const query = req\.query as \{ roomId\?: string; scope\?: string; role\?: string \}/);
+  assert.match(server, /!\['conversation', 'group'\]\.includes\(query\.scope \|\| ''\)/);
+  assert.match(server, /const isMember = query\.scope === 'conversation'[\s\S]*?prisma\.groupMember\.findUnique/);
+  assert.match(server, /if \(!isMember\) return reply\.code\(403\)/);
+  assert.match(html, /\/calls\/ice-config\?scope='\+encodeURIComponent\(scope\)\+'&roomId='/);
+});
