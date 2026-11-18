@@ -335,3 +335,24 @@ test('clickable surfaces have pointer, hover, pressed, and keyboard focus feedba
   assert.match(html, /\.cursor-pointer:focus-visible, \[role="button"\]:focus-visible/);
   assert.match(html, /@media \(hover: hover\) and \(pointer: fine\)/);
 });
+
+test('creator post like and comment endpoints return 404 for unknown posts', () => {
+  const source = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8');
+  const likeStart = source.indexOf("app.post('/api/posts/:id/like'");
+  const commentStart = source.indexOf("app.post('/api/posts/:id/comments'");
+  const followStart = source.indexOf("app.post('/api/users/:id/follow'");
+  assert.ok(likeStart >= 0 && commentStart > likeStart && followStart > commentStart);
+  const likeRoute = source.slice(likeStart, commentStart);
+  const commentRoute = source.slice(commentStart, followStart);
+  assert.ok(likeRoute.includes("if (!post) return reply.code(404)"));
+  assert.ok(commentRoute.includes("if (!post) return reply.code(404)"));
+});
+
+test('creator profile responses include recent comment authors and bodies', () => {
+  const source = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8');
+  const start = source.indexOf("app.get('/api/users/:id/profile'");
+  const end = source.indexOf("app.get('/api/feed'", start);
+  const route = source.slice(start, end);
+  assert.ok(route.includes("take: 3"));
+  assert.ok(route.includes("author: comment.user.displayName || comment.user.handle"));
+});
