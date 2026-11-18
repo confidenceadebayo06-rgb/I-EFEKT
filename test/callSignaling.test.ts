@@ -62,6 +62,12 @@ test('inline browser scripts in the app page parse successfully', () => {
 });
 
 
+test('call room identifiers reject separators and unsafe characters to prevent room-name collisions', () => {
+  const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
+  assert.match(source, /\/\^\[A-Za-z0-9_\-\]\{1,128\}\$\//);
+  assert.doesNotMatch(source, /value\.length > 0 && value\.length <= 128/);
+});
+
 test('call signaling uses unique call IDs rather than the underlying conversation or group ID for room isolation', () => {
   const source = readFileSync(new URL('../src/callSignaling.ts', import.meta.url), 'utf8');
   assert.match(source, /call:\$\{scope\}:\$\{roomId\}:\$\{callId\}/);
