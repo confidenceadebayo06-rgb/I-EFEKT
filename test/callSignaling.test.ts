@@ -325,3 +325,13 @@ test('receiver ICE credentials require a valid room scope and current membership
   assert.match(server, /if \(!isMember\) return reply\.code\(403\)/);
   assert.match(html, /\/calls\/ice-config\?scope='\+encodeURIComponent\(scope\)\+'&roomId='/);
 });
+
+
+test('clickable surfaces have pointer, hover, pressed, and keyboard focus feedback', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /\[onclick\]:not\(button\):not\(a\), \.cursor-pointer \{ cursor: pointer; \}/);
+  assert.match(html, /\.cursor-pointer:hover \{[\s\S]*?border-color:/);
+  assert.match(html, /\.cursor-pointer:active \{ transform: scale\(\.99\); \}/);
+  assert.match(html, /\.cursor-pointer:focus-visible, \[role="button"\]:focus-visible/);
+  assert.match(html, /@media \(hover: hover\) and \(pointer: fine\)/);
+});
