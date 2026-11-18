@@ -28,6 +28,7 @@ model User {
   groupMemberships GroupMember[]
   groupMessages GroupMessage[]
   communityMemberships CommunityMember[]
+  circleMemberships CircleMember[]
   ownedCircles Circle[] @relation("CircleOwner")
   circleJoinRequests CircleJoinRequest[]
   challengeEntries ChallengeEntry[]
