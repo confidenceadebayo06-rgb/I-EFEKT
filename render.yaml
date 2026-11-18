@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: iefekt-production-api
+    runtime: docker
+    region: singapore
+    plan: 1c-2g
+    branch: fix/safe-prisma-staging-startup
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: APP_ORIGIN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: iefekt-production-redis
+          type: keyvalue
+          property: connectionString
+
+  - type: keyvalue
+    name: iefekt-production-redis
+    region: singapore
+    plan: 256mb
+    ipAllowList: []
