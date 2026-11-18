@@ -16,7 +16,7 @@ type CallSignalPayload = {
 
 const roomName = ({ scope, roomId, callId }: CallJoinPayload) => `call:${scope}:${roomId}:${callId}`;
 const validId = (value: unknown): value is string =>
-  typeof value === 'string' && value.length > 0 && value.length <= 128;
+  typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
 async function canJoinCall(prisma: PrismaClient, userId: string, payload: CallJoinPayload) {
   if (payload.scope === 'conversation') {
