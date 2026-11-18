@@ -361,12 +361,12 @@ test('signed-in social feed renders only posts returned by the authenticated API
   const start = html.indexOf('async function loadCloudFeed()');
   const end = html.indexOf('refreshAccount().then', start);
   const loader = html.slice(start, end);
-  assert.ok(loader.includes('reelsData=cloud;renderFeed()')));
-  assert.ok(loader.includes('if(!signedInUser){reelsData=[];renderFeed();return;}')));
-  assert.ok(loader.includes('reelsData=[];renderFeed()')));
+  assert.ok(loader.includes('reelsData=cloud;renderFeed()'));
+  assert.ok(loader.includes('if(!signedInUser){reelsData=[];renderFeed();return;}'));
+  assert.ok(loader.includes('reelsData=[];renderFeed()'));
 });
 
 test('feed author names link to the real creator profile', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.ok(html.includes('openSocialCreatorProfile(&quot;\'+reel.authorId+\'&quot;)')));
+  assert.ok(html.includes('openSocialCreatorProfile(&quot;\'+reel.authorId+\'&quot;)'));
 });
