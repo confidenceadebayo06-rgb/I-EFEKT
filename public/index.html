@@ -2182,12 +2182,31 @@
       if (viewName === "profile") renderProfileGrids();
     }
 
-    function setFeedTab(tab) {
+    let cachedForYouReels = null;
+    function mapDiscoveryPost(p, i) {
+      const author = p.author || {};
+      return { id: 910000 + i, postId: p.id || p.postId, author: '@' + String(author.handle || p.handle || p.authorHandle || 'creator').replace(/^@/, ''), authorId: author.id || p.authorId, displayName: author.displayName || p.displayName || author.handle || 'Creator', avatar: author.avatarUrl || p.avatar || 'https://placehold.co/150x150/1e293b/ffffff?text=IE', photoUrl: '', mediaUrl: p.mediaUrl, mediaType: p.mediaType || 'image', caption: p.caption || 'I-EFEKT post', sound: 'Original Audio', efekt: 'efekt-pure', duetMode: false, likes: p.likes || 0, liked: !!p.liked, saved: false, tips: 0, following: !!p.following, trending: currentFeedTab === 'trending', comments: [], commentsCount: p.comments || p.commentsCount || 0 };
+    }
+    async function setFeedTab(tab) {
       currentFeedTab = tab;
       ["foryou", "following", "trending"].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
-        el.className = t === tab ? "text-white border-b-2 border-efekt-cyan pb-0.5" : "text-slate-400 hover:text-white transition-colors";
+        if (el) el.className = t === tab ? "text-white border-b-2 border-efekt-cyan pb-0.5" : "text-slate-400 hover:text-white transition-colors";
       });
+      if (tab === 'trending' && signedInUser) {
+        const container = document.getElementById('video-feed-container');
+        if (container) container.innerHTML = '<div class="p-8 text-center text-slate-400">Loading trending creators…</div>';
+        try {
+          const result = await apiRequest('/trending?limit=30');
+          reelsData = (result.posts || []).filter(p => p.mediaUrl).map(mapDiscoveryPost);
+          renderFeed();
+        } catch (error) {
+          showToast('Trending could not load: ' + error.message);
+          renderFeed();
+        }
+        return;
+      }
+      if (tab === 'foryou' && cachedForYouReels) reelsData = cachedForYouReels;
       renderFeed();
     }
 
@@ -2331,7 +2350,7 @@
     async function deleteCloudAccount(){if(prompt('To permanently delete this account, type DELETE MY ACCOUNT')!=='DELETE MY ACCOUNT')return;try{await apiRequest('/me',{method:'DELETE',body:JSON.stringify({confirm:'DELETE MY ACCOUNT'})});signedInUser=null;if(cloudSocket){cloudSocket.disconnect();cloudSocket=null;}closeCloudPanel();updateCloudAuthState();showToast('Account deletion submitted');}catch(e){document.getElementById('cloud-panel-status').textContent=e.message;}}
     async function reportCloudPost(postId){if(!signedInUser){openAuthPanel();return showToast('Sign in to report content');}const reason=(prompt('Report reason: spam, harassment, hate, violence, nudity, misinformation, other','other')||'').trim().toLowerCase();if(!reason)return;try{await apiRequest('/reports',{method:'POST',body:JSON.stringify({postId,reason,details:''})});showToast('Report submitted for review');}catch(e){showToast(e.message);}}
     if('serviceWorker'in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}
-    async function loadCloudFeed(){if(!signedInUser){reelsData=[];renderFeed();return;}try{const result=await apiRequest('/feed');const cloud=(result.posts||[]).filter(p=>p.mediaUrl).map((p,i)=>({id:900000+i,postId:p.postId,author:'@'+String(p.author||'').replace(/^@/,''),authorId:p.authorId,displayName:p.displayName||p.author,avatar:p.avatar||'https://placehold.co/150x150/1e293b/ffffff?text=IE',photoUrl:'',mediaUrl:p.mediaUrl,mediaType:p.mediaType,caption:p.caption||'I-EFEKT post',sound:'Original Audio',efekt:'efekt-pure',duetMode:false,likes:p.likes||0,liked:!!p.liked,saved:!!p.saved,tips:0,following:!!p.following,trending:false,comments:[],commentsCount:p.commentsCount||0}));reelsData=cloud;renderFeed();}catch(e){reelsData=[];renderFeed();const container=document.getElementById('video-feed-container');if(container)container.innerHTML='<div class="h-full min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6 text-center"><p class="text-white font-bold">Your feed could not be loaded.</p><p class="text-sm text-slate-400">Connect again to see real creator posts.</p><button type="button" onclick="loadCloudFeed()" class="rounded-full bg-efekt-cyan text-black px-4 py-2 text-sm font-bold">Try again</button></div>';console.debug('Cloud feed unavailable',e.message);}}
+    async function loadCloudFeed(){if(!signedInUser){reelsData=[];cachedForYouReels=[];renderFeed();return;}try{const result=await apiRequest('/feed');const cloud=(result.posts||[]).filter(p=>p.mediaUrl).map((p,i)=>({id:900000+i,postId:p.postId,author:'@'+String(p.author||'').replace(/^@/,''),authorId:p.authorId,displayName:p.displayName||p.author,avatar:p.avatar||'https://placehold.co/150x150/1e293b/ffffff?text=IE',photoUrl:'',mediaUrl:p.mediaUrl,mediaType:p.mediaType,caption:p.caption||'I-EFEKT post',sound:'Original Audio',efekt:'efekt-pure',duetMode:false,likes:p.likes||0,liked:!!p.liked,saved:!!p.saved,tips:0,following:!!p.following,trending:false,comments:[],commentsCount:p.commentsCount||0}));cachedForYouReels=cloud;reelsData=cloud;if(currentFeedTab==='trending'){const trending=await apiRequest('/trending?limit=30');reelsData=(trending.posts||[]).filter(p=>p.mediaUrl).map(mapDiscoveryPost);}renderFeed();}catch(e){reelsData=[];renderFeed();const container=document.getElementById('video-feed-container');if(container)container.innerHTML='<div class="h-full min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6 text-center"><p class="text-white font-bold">Your feed could not be loaded.</p><p class="text-sm text-slate-400">Connect again to see real creator posts.</p><button type="button" onclick="loadCloudFeed()" class="rounded-full bg-efekt-cyan text-black px-4 py-2 text-sm font-bold">Try again</button></div>';console.debug('Cloud feed unavailable',e.message);}}
     refreshAccount().then(()=>{applyOwnerProfile();syncOwnerProfileToCloud();loadCloudFeed();flushCloudMessageOutbox();syncCloudChanges();checkTipEligibility();});
 
     // Boot Application
@@ -2465,6 +2484,36 @@
   async function socialTryApi(path,options){if(!signedInUser)return;try{await apiRequest(path,options);}catch(e){console.debug('Social API not connected:',path,e.message);}}
   </script>
 
+
+  <div id="creator-explore-modal" class="hidden fixed inset-0 z-[175] bg-black/85 backdrop-blur-md p-3 items-center justify-center">
+    <section class="glass rounded-3xl border border-efekt-cyan/30 p-4 w-full max-w-2xl max-h-[90dvh] overflow-y-auto space-y-3">
+      <header class="flex justify-between items-center"><h2 class="font-bold text-lg">Explore I-EFEKT</h2><button onclick="closeCreatorExplore()" class="rounded-xl bg-white/10 px-3 py-2">Close ✕</button></header>
+      <input id="creator-explore-query" oninput="searchCreatorExplore()" class="w-full p-3 rounded-xl bg-black/40 border border-white/10" placeholder="Search creators, posts and hashtags…">
+      <div id="creator-explore-suggestions" class="flex flex-wrap gap-2"></div>
+      <div id="creator-explore-results" class="space-y-2 text-sm text-slate-300">Search real creators and public posts.</div>
+    </section>
+  </div>
+  <button id="creator-explore-launch" onclick="openCreatorExplore()" class="fixed bottom-24 left-4 z-[100] rounded-full bg-white/10 border border-efekt-cyan/40 text-white font-bold px-4 py-3 shadow-xl">Explore</button>
+  <script>
+    let creatorExploreTimer;
+    function openCreatorExplore(){const m=document.getElementById('creator-explore-modal');m.classList.remove('hidden');m.classList.add('flex');document.getElementById('creator-explore-query').focus();}
+    function closeCreatorExplore(){const m=document.getElementById('creator-explore-modal');m.classList.add('hidden');m.classList.remove('flex');}
+    async function searchCreatorExplore(){
+      clearTimeout(creatorExploreTimer);
+      creatorExploreTimer=setTimeout(async()=>{
+        const q=document.getElementById('creator-explore-query').value.trim();
+        const suggestions=document.getElementById('creator-explore-suggestions'), results=document.getElementById('creator-explore-results');
+        if(q.length<2){suggestions.innerHTML='';results.textContent='Type at least two characters to search.';return;}
+        suggestions.textContent='Finding suggestions…';results.textContent='Searching public posts…';
+        try{
+          const [auto, explore]=await Promise.all([apiRequest('/search/autocomplete?q='+encodeURIComponent(q)),apiRequest('/explore?q='+encodeURIComponent(q)+'&limit=20')]);
+          suggestions.innerHTML=(auto.creators||[]).map(u=>'<button class="rounded-full bg-white/10 px-3 py-1 text-xs" onclick="document.getElementById(\'creator-explore-query\').value='+JSON.stringify(u.handle)+';searchCreatorExplore()">@'+escapeHtml(u.handle)+'</button>').join('')+(auto.posts||[]).length?((auto.posts||[]).length?'<span class="text-xs text-slate-400">Matching posts found</span>':''):'';
+          const posts=explore.posts||[];
+          results.innerHTML=posts.map(p=>'<article class="rounded-xl bg-white/5 p-3"><b>@'+escapeHtml(p.author?.handle||'creator')+'</b><p class="mt-1">'+escapeHtml(p.caption||'')+'</p><span class="text-xs text-slate-500">'+(p.likes||0)+' likes · '+(p.comments||0)+' comments</span></article>').join('')||'No matching public posts found.';
+        }catch(e){suggestions.textContent='';results.textContent='Search unavailable: '+e.message;}
+      },250);
+    }
+  </script>
 
   <button id="creator-ai-launch" onclick="openCreatorAiLab()" class="fixed bottom-24 right-4 z-[100] rounded-full neon-gradient text-black font-extrabold px-4 py-3 shadow-2xl flex items-center gap-2"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Creator AI Lab</span></button>
   <div id="creator-ai-modal" class="hidden fixed inset-0 z-[180] bg-black/85 backdrop-blur-md p-3 items-center justify-center">
