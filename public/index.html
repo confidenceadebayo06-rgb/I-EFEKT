@@ -2465,5 +2465,56 @@
   async function socialTryApi(path,options){if(!signedInUser)return;try{await apiRequest(path,options);}catch(e){console.debug('Social API not connected:',path,e.message);}}
   </script>
 
+
+  <button id="creator-ai-launch" onclick="openCreatorAiLab()" class="fixed bottom-24 right-4 z-[100] rounded-full neon-gradient text-black font-extrabold px-4 py-3 shadow-2xl flex items-center gap-2"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Creator AI Lab</span></button>
+  <div id="creator-ai-modal" class="hidden fixed inset-0 z-[180] bg-black/85 backdrop-blur-md p-3 items-center justify-center">
+    <section class="glass rounded-3xl border border-efekt-cyan/30 p-4 sm:p-6 w-full max-w-3xl max-h-[94dvh] overflow-y-auto space-y-4">
+      <header class="flex items-center justify-between gap-3"><div><h2 class="font-display text-xl font-bold">Creator AI Lab</h2><p class="text-xs text-slate-400">Writing, language and content analysis tools</p></div><button onclick="closeCreatorAiLab()" class="rounded-xl bg-white/10 px-3 py-2">Close ✕</button></header>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <label class="text-xs text-slate-300 space-y-1">Tool<select id="creator-ai-tool" class="w-full p-3"><option value="spell-checker">Spell Checker</option><option value="grammar-checker">Grammar Checker</option><option value="plagiarism-checker">Plagiarism Checker</option><option value="summarizer">Summarizer</option><option value="paraphraser">Paraphraser</option><option value="translator">Translator</option><option value="sentiment-analyzer">Sentiment Analyzer</option><option value="keyword-extractor">Keyword Extractor</option><option value="topic-classifier">Topic Classifier</option></select></label>
+        <label class="text-xs text-slate-300 space-y-1">Target language (Translator only)<input id="creator-ai-language" class="w-full p-3" placeholder="e.g. Yoruba, French, Hausa"></label>
+      </div>
+      <label class="block text-xs text-slate-300 space-y-1">Your text<textarea id="creator-ai-input" rows="7" maxlength="20000" class="w-full p-3" placeholder="Paste or write your text here (up to 20,000 characters)…"></textarea></label>
+      <label class="block text-xs text-slate-300 space-y-1">Comparison sources (Plagiarism Checker only; separate each source with a blank line)<textarea id="creator-ai-sources" rows="3" maxlength="20000" class="w-full p-3" placeholder="Paste the text you want to compare against…"></textarea></label>
+      <div class="flex flex-wrap gap-2"><button onclick="runCreatorAiTool()" id="creator-ai-run" class="rounded-xl neon-gradient text-black font-extrabold px-4 py-3">Run tool</button><button onclick="document.getElementById('creator-ai-input').value='';document.getElementById('creator-ai-output').textContent='';" class="rounded-xl bg-white/10 px-4 py-3 text-sm">Clear</button></div>
+      <div id="creator-ai-status" role="status" class="text-xs text-slate-400"></div>
+      <section class="rounded-2xl bg-black/35 border border-white/10 p-3 space-y-2"><h3 class="text-xs font-bold text-efekt-cyan">Result</h3><pre id="creator-ai-output" class="whitespace-pre-wrap break-words text-sm text-slate-100 font-sans"></pre></section>
+      <div class="border-t border-white/10 pt-4 space-y-3">
+        <h3 class="font-bold text-sm">Image Classifier</h3><p class="text-[11px] text-slate-400">Classifies visible image content using the configured vision model. Use an image URL your account is allowed to access.</p>
+        <input id="creator-ai-image-url" type="url" class="w-full p-3" placeholder="https://… image URL">
+        <input id="creator-ai-image-question" class="w-full p-3" placeholder="Optional: What should the model identify?">
+        <button onclick="runCreatorImageClassifier()" class="rounded-xl bg-efekt-purple/30 border border-efekt-purple/50 px-4 py-3 text-sm font-bold">Classify image</button>
+      </div>
+      <p class="text-[10px] text-slate-500">AI tools require AI_API_KEY on the staging service. Plagiarism checking compares only sources you provide; it is not a web-wide originality scan. Do not submit private or sensitive information unless you are comfortable sending it to the configured AI provider.</p>
+    </section>
+  </div>
+  <script>
+    function openCreatorAiLab(){const el=document.getElementById('creator-ai-modal');el.classList.remove('hidden');el.classList.add('flex');}
+    function closeCreatorAiLab(){const el=document.getElementById('creator-ai-modal');el.classList.add('hidden');el.classList.remove('flex');}
+    async function runCreatorAiTool(){
+      const tool=document.getElementById('creator-ai-tool').value;
+      const text=document.getElementById('creator-ai-input').value.trim();
+      const status=document.getElementById('creator-ai-status'), output=document.getElementById('creator-ai-output'), button=document.getElementById('creator-ai-run');
+      if(!text){status.textContent='Enter some text first.';return;}
+      const body={text};
+      if(tool==='translator') body.targetLanguage=document.getElementById('creator-ai-language').value.trim();
+      if(tool==='plagiarism-checker') body.comparisonSources=document.getElementById('creator-ai-sources').value.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+      if(tool==='translator'&&!body.targetLanguage){status.textContent='Enter a target language.';return;}
+      if(tool==='plagiarism-checker'&&!body.comparisonSources.length){status.textContent='Add at least one comparison source. This is not a web-wide scan.';return;}
+      button.disabled=true;status.textContent='Working…';output.textContent='';
+      try{const res=await fetch('/api/ai/'+encodeURIComponent(tool),{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw new Error(data.error||'Request failed');output.textContent=data.result||JSON.stringify(data,null,2);status.textContent='Completed with '+data.model+'.';}
+      catch(error){status.textContent=error.message||'Could not run the tool.';}
+      finally{button.disabled=false;}
+    }
+    async function runCreatorImageClassifier(){
+      const status=document.getElementById('creator-ai-status'),output=document.getElementById('creator-ai-output');
+      const imageUrl=document.getElementById('creator-ai-image-url').value.trim();
+      if(!imageUrl){status.textContent='Enter an image URL.';return;}
+      status.textContent='Classifying image…';output.textContent='';
+      try{const res=await fetch('/api/ai/image-classifier',{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify({imageUrl,question:document.getElementById('creator-ai-image-question').value.trim()||undefined})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Request failed');output.textContent=data.result;status.textContent='Completed with '+data.model+'.';}
+      catch(error){status.textContent=error.message||'Could not classify the image.';}
+    }
+  </script>
+
 </body>
 </html>
