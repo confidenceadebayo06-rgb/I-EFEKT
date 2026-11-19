@@ -2506,8 +2506,10 @@
         if(q.length<2){suggestions.innerHTML='';results.textContent='Type at least two characters to search.';return;}
         suggestions.textContent='Finding suggestions…';results.textContent='Searching public posts…';
         try{
-          const [auto, explore]=await Promise.all([apiRequest('/search/autocomplete?q='+encodeURIComponent(q)),apiRequest('/explore?q='+encodeURIComponent(q)+'&limit=20')]);
-          suggestions.innerHTML=(auto.creators||[]).map(u=>'<button class="rounded-full bg-white/10 px-3 py-1 text-xs" onclick="document.getElementById(\'creator-explore-query\').value='+JSON.stringify(u.handle)+';searchCreatorExplore()">@'+escapeHtml(u.handle)+'</button>').join('')+(auto.posts||[]).length?((auto.posts||[]).length?'<span class="text-xs text-slate-400">Matching posts found</span>':''):'';
+          const [auto, hints, explore]=await Promise.all([apiRequest('/search/autocomplete?q='+encodeURIComponent(q)),apiRequest('/search/suggestions?q='+encodeURIComponent(q)),apiRequest('/explore?q='+encodeURIComponent(q)+'&limit=20')]);
+          const creatorButtons=(auto.creators||[]).map(u=>'<button class="rounded-full bg-white/10 px-3 py-1 text-xs" onclick="document.getElementById(\\'creator-explore-query\\').value='+JSON.stringify(u.handle)+';searchCreatorExplore()">@'+escapeHtml(u.handle)+'</button>').join('');
+          const tagButtons=(hints.suggestions||[]).filter(x=>x.type==='hashtag').map(x=>'<button class="rounded-full bg-efekt-cyan/10 border border-efekt-cyan/30 px-3 py-1 text-xs" onclick="document.getElementById(\\'creator-explore-query\\').value='+JSON.stringify(x.query)+';searchCreatorExplore()">'+escapeHtml(x.label)+'</button>').join('');
+          suggestions.innerHTML=creatorButtons+tagButtons||'<span class="text-xs text-slate-400">No suggestions yet.</span>';
           const posts=explore.posts||[];
           results.innerHTML=posts.map(p=>'<article class="rounded-xl bg-white/5 p-3"><b>@'+escapeHtml(p.author?.handle||'creator')+'</b><p class="mt-1">'+escapeHtml(p.caption||'')+'</p><span class="text-xs text-slate-500">'+(p.likes||0)+' likes · '+(p.comments||0)+' comments</span></article>').join('')||'No matching public posts found.';
         }catch(e){suggestions.textContent='';results.textContent='Search unavailable: '+e.message;}
