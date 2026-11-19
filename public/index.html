@@ -2182,12 +2182,31 @@
       if (viewName === "profile") renderProfileGrids();
     }
 
-    function setFeedTab(tab) {
+    let cachedForYouReels = null;
+    function mapDiscoveryPost(p, i) {
+      const author = p.author || {};
+      return { id: 910000 + i, postId: p.id || p.postId, author: '@' + String(author.handle || p.handle || p.authorHandle || 'creator').replace(/^@/, ''), authorId: author.id || p.authorId, displayName: author.displayName || p.displayName || author.handle || 'Creator', avatar: author.avatarUrl || p.avatar || 'https://placehold.co/150x150/1e293b/ffffff?text=IE', photoUrl: '', mediaUrl: p.mediaUrl, mediaType: p.mediaType || 'image', caption: p.caption || 'I-EFEKT post', sound: 'Original Audio', efekt: 'efekt-pure', duetMode: false, likes: p.likes || 0, liked: !!p.liked, saved: false, tips: 0, following: !!p.following, trending: currentFeedTab === 'trending', comments: [], commentsCount: p.comments || p.commentsCount || 0 };
+    }
+    async function setFeedTab(tab) {
       currentFeedTab = tab;
       ["foryou", "following", "trending"].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
-        el.className = t === tab ? "text-white border-b-2 border-efekt-cyan pb-0.5" : "text-slate-400 hover:text-white transition-colors";
+        if (el) el.className = t === tab ? "text-white border-b-2 border-efekt-cyan pb-0.5" : "text-slate-400 hover:text-white transition-colors";
       });
+      if (tab === 'trending' && signedInUser) {
+        const container = document.getElementById('video-feed-container');
+        if (container) container.innerHTML = '<div class="p-8 text-center text-slate-400">Loading trending creators…</div>';
+        try {
+          const result = await apiRequest('/trending?limit=30');
+          reelsData = (result.posts || []).filter(p => p.mediaUrl).map(mapDiscoveryPost);
+          renderFeed();
+        } catch (error) {
+          showToast('Trending could not load: ' + error.message);
+          renderFeed();
+        }
+        return;
+      }
+      if (tab === 'foryou' && cachedForYouReels) reelsData = cachedForYouReels;
       renderFeed();
     }
 
@@ -2331,7 +2350,7 @@
     async function deleteCloudAccount(){if(prompt('To permanently delete this account, type DELETE MY ACCOUNT')!=='DELETE MY ACCOUNT')return;try{await apiRequest('/me',{method:'DELETE',body:JSON.stringify({confirm:'DELETE MY ACCOUNT'})});signedInUser=null;if(cloudSocket){cloudSocket.disconnect();cloudSocket=null;}closeCloudPanel();updateCloudAuthState();showToast('Account deletion submitted');}catch(e){document.getElementById('cloud-panel-status').textContent=e.message;}}
     async function reportCloudPost(postId){if(!signedInUser){openAuthPanel();return showToast('Sign in to report content');}const reason=(prompt('Report reason: spam, harassment, hate, violence, nudity, misinformation, other','other')||'').trim().toLowerCase();if(!reason)return;try{await apiRequest('/reports',{method:'POST',body:JSON.stringify({postId,reason,details:''})});showToast('Report submitted for review');}catch(e){showToast(e.message);}}
     if('serviceWorker'in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}
-    async function loadCloudFeed(){if(!signedInUser){reelsData=[];renderFeed();return;}try{const result=await apiRequest('/feed');const cloud=(result.posts||[]).filter(p=>p.mediaUrl).map((p,i)=>({id:900000+i,postId:p.postId,author:'@'+String(p.author||'').replace(/^@/,''),authorId:p.authorId,displayName:p.displayName||p.author,avatar:p.avatar||'https://placehold.co/150x150/1e293b/ffffff?text=IE',photoUrl:'',mediaUrl:p.mediaUrl,mediaType:p.mediaType,caption:p.caption||'I-EFEKT post',sound:'Original Audio',efekt:'efekt-pure',duetMode:false,likes:p.likes||0,liked:!!p.liked,saved:!!p.saved,tips:0,following:!!p.following,trending:false,comments:[],commentsCount:p.commentsCount||0}));reelsData=cloud;renderFeed();}catch(e){reelsData=[];renderFeed();const container=document.getElementById('video-feed-container');if(container)container.innerHTML='<div class="h-full min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6 text-center"><p class="text-white font-bold">Your feed could not be loaded.</p><p class="text-sm text-slate-400">Connect again to see real creator posts.</p><button type="button" onclick="loadCloudFeed()" class="rounded-full bg-efekt-cyan text-black px-4 py-2 text-sm font-bold">Try again</button></div>';console.debug('Cloud feed unavailable',e.message);}}
+    async function loadCloudFeed(){if(!signedInUser){reelsData=[];renderFeed();return;}try{const result=await apiRequest('/feed');const cloud=(result.posts||[]).filter(p=>p.mediaUrl).map((p,i)=>({id:900000+i,postId:p.postId,author:'@'+String(p.author||'').replace(/^@/,''),authorId:p.authorId,displayName:p.displayName||p.author,avatar:p.avatar||'https://placehold.co/150x150/1e293b/ffffff?text=IE',photoUrl:'',mediaUrl:p.mediaUrl,mediaType:p.mediaType,caption:p.caption||'I-EFEKT post',sound:'Original Audio',efekt:'efekt-pure',duetMode:false,likes:p.likes||0,liked:!!p.liked,saved:!!p.saved,tips:0,following:!!p.following,trending:false,comments:[],commentsCount:p.commentsCount||0}));cachedForYouReels=cloud;reelsData=cloud;renderFeed();if(currentFeedTab==='trending'){const trending=await apiRequest('/trending?limit=30');reelsData=(trending.posts||[]).filter(p=>p.mediaUrl).map(mapDiscoveryPost);}renderFeed();}catch(e){reelsData=[];renderFeed();const container=document.getElementById('video-feed-container');if(container)container.innerHTML='<div class="h-full min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6 text-center"><p class="text-white font-bold">Your feed could not be loaded.</p><p class="text-sm text-slate-400">Connect again to see real creator posts.</p><button type="button" onclick="loadCloudFeed()" class="rounded-full bg-efekt-cyan text-black px-4 py-2 text-sm font-bold">Try again</button></div>';console.debug('Cloud feed unavailable',e.message);}}
     refreshAccount().then(()=>{applyOwnerProfile();syncOwnerProfileToCloud();loadCloudFeed();flushCloudMessageOutbox();syncCloudChanges();checkTipEligibility();});
 
     // Boot Application
@@ -2463,6 +2482,89 @@
   function renderSocialMusic(){return `<div class="grid lg:grid-cols-2 gap-4">${socialCard('Collaborative playlist','Create a playlist that friends can add tracks to.',`<input id="playlist-name" placeholder="Playlist name" class="w-full rounded-xl bg-slate-950 p-3"><input id="playlist-track" placeholder="Track title or permitted audio URL" class="w-full rounded-xl bg-slate-950 p-3 mt-2"><button onclick="createSocialPlaylist()" class="mt-3 rounded-xl bg-efekt-cyan text-slate-950 px-4 py-2 font-bold">Create playlist / add track</button>`)}${socialCard('Your playlists','Shared playlist drafts.',`<div class="space-y-3">${socialState.playlists.length?socialState.playlists.map(p=>`<div class="rounded-xl bg-slate-950 p-3"><b>${socialEsc(p.name)}</b><ul class="list-disc pl-5 mt-2 text-sm text-slate-300">${p.tracks.map(t=>`<li>${socialEsc(t)}</li>`).join('')}</ul></div>`).join(''):'<p class="text-sm text-slate-500">No playlists yet.</p>'}</div>`)}${socialCard('Music rooms','Listen and discuss tracks together.',`<button onclick="showToast('Synchronized listening needs a licensed audio source and real-time playback service.')" class="rounded-xl bg-white/10 px-4 py-2">Create listening room</button><p class="text-xs text-slate-500 mt-2">Use licensed tracks or audio supplied by rights holders. Synchronized playback and rights reporting need provider integration.</p>`)}</div>`;}
   function createSocialPlaylist(){const name=document.getElementById('playlist-name').value.trim(),track=document.getElementById('playlist-track').value.trim();if(!name)return showToast('Enter a playlist name');let p=socialState.playlists.find(x=>x.name===name);if(!p){p={id:'p'+Date.now(),name,tracks:[]};socialState.playlists.push(p);}if(track)p.tracks.push(track);saveSocialState();renderSocialHub('music');socialTryApi('/playlists',{method:'POST',body:JSON.stringify({name,track})});showToast('Playlist saved on this device');}
   async function socialTryApi(path,options){if(!signedInUser)return;try{await apiRequest(path,options);}catch(e){console.debug('Social API not connected:',path,e.message);}}
+  </script>
+
+
+  <div id="creator-explore-modal" class="hidden fixed inset-0 z-[175] bg-black/85 backdrop-blur-md p-3 items-center justify-center">
+    <section class="glass rounded-3xl border border-efekt-cyan/30 p-4 w-full max-w-2xl max-h-[90dvh] overflow-y-auto space-y-3">
+      <header class="flex justify-between items-center"><h2 class="font-bold text-lg">Explore I-EFEKT</h2><button onclick="closeCreatorExplore()" class="rounded-xl bg-white/10 px-3 py-2">Close ✕</button></header>
+      <input id="creator-explore-query" oninput="searchCreatorExplore()" class="w-full p-3 rounded-xl bg-black/40 border border-white/10" placeholder="Search creators, posts and hashtags…">
+      <div id="creator-explore-suggestions" class="flex flex-wrap gap-2"></div>
+      <div id="creator-explore-results" class="space-y-2 text-sm text-slate-300">Search real creators and public posts.</div>
+    </section>
+  </div>
+  <button id="creator-explore-launch" onclick="openCreatorExplore()" class="fixed bottom-24 left-4 z-[100] rounded-full bg-white/10 border border-efekt-cyan/40 text-white font-bold px-4 py-3 shadow-xl">Explore</button>
+  <script>
+    let creatorExploreTimer;
+    function openCreatorExplore(){const m=document.getElementById('creator-explore-modal');m.classList.remove('hidden');m.classList.add('flex');document.getElementById('creator-explore-query').focus();}
+    function closeCreatorExplore(){const m=document.getElementById('creator-explore-modal');m.classList.add('hidden');m.classList.remove('flex');}
+    async function searchCreatorExplore(){
+      clearTimeout(creatorExploreTimer);
+      creatorExploreTimer=setTimeout(async()=>{
+        const q=document.getElementById('creator-explore-query').value.trim();
+        const suggestions=document.getElementById('creator-explore-suggestions'), results=document.getElementById('creator-explore-results');
+        if(q.length<2){suggestions.innerHTML='';results.textContent='Type at least two characters to search.';return;}
+        suggestions.textContent='Finding suggestions…';results.textContent='Searching public posts…';
+        try{
+          const [auto, hints, explore]=await Promise.all([apiRequest('/search/autocomplete?q='+encodeURIComponent(q)),apiRequest('/search/suggestions?q='+encodeURIComponent(q)),apiRequest('/explore?q='+encodeURIComponent(q)+'&limit=20')]);
+          const creatorButtons=(auto.creators||[]).map(u=>'<button class="rounded-full bg-white/10 px-3 py-1 text-xs" onclick="document.getElementById(\'creator-explore-query\').value='+JSON.stringify(u.handle)+';searchCreatorExplore()">@'+escapeHtml(u.handle)+'</button>').join('');
+          const tagButtons=(hints.suggestions||[]).filter(x=>x.type==='hashtag').map(x=>'<button class="rounded-full bg-efekt-cyan/10 border border-efekt-cyan/30 px-3 py-1 text-xs" onclick="document.getElementById(\'creator-explore-query\').value='+JSON.stringify(x.query)+';searchCreatorExplore()">'+escapeHtml(x.label)+'</button>').join('');
+          suggestions.innerHTML=creatorButtons+tagButtons||'<span class="text-xs text-slate-400">No suggestions yet.</span>';
+          const posts=explore.posts||[];
+          results.innerHTML=posts.map(p=>'<article class="rounded-xl bg-white/5 p-3"><b>@'+escapeHtml(p.author?.handle||'creator')+'</b><p class="mt-1">'+escapeHtml(p.caption||'')+'</p><span class="text-xs text-slate-500">'+(p.likes||0)+' likes · '+(p.comments||0)+' comments</span></article>').join('')||'No matching public posts found.';
+        }catch(e){suggestions.textContent='';results.textContent='Search unavailable: '+e.message;}
+      },250);
+    }
+  </script>
+
+  <button id="creator-ai-launch" onclick="openCreatorAiLab()" class="fixed bottom-24 right-4 z-[100] rounded-full neon-gradient text-black font-extrabold px-4 py-3 shadow-2xl flex items-center gap-2"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Creator AI Lab</span></button>
+  <div id="creator-ai-modal" class="hidden fixed inset-0 z-[180] bg-black/85 backdrop-blur-md p-3 items-center justify-center">
+    <section class="glass rounded-3xl border border-efekt-cyan/30 p-4 sm:p-6 w-full max-w-3xl max-h-[94dvh] overflow-y-auto space-y-4">
+      <header class="flex items-center justify-between gap-3"><div><h2 class="font-display text-xl font-bold">Creator AI Lab</h2><p class="text-xs text-slate-400">Writing, language and content analysis tools</p></div><button onclick="closeCreatorAiLab()" class="rounded-xl bg-white/10 px-3 py-2">Close ✕</button></header>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <label class="text-xs text-slate-300 space-y-1">Tool<select id="creator-ai-tool" class="w-full p-3"><option value="spell-checker">Spell Checker</option><option value="grammar-checker">Grammar Checker</option><option value="plagiarism-checker">Plagiarism Checker</option><option value="summarizer">Summarizer</option><option value="paraphraser">Paraphraser</option><option value="translator">Translator</option><option value="sentiment-analyzer">Sentiment Analyzer</option><option value="keyword-extractor">Keyword Extractor</option><option value="topic-classifier">Topic Classifier</option></select></label>
+        <label class="text-xs text-slate-300 space-y-1">Target language (Translator only)<input id="creator-ai-language" class="w-full p-3" placeholder="e.g. Yoruba, French, Hausa"></label>
+      </div>
+      <label class="block text-xs text-slate-300 space-y-1">Your text<textarea id="creator-ai-input" rows="7" maxlength="20000" class="w-full p-3" placeholder="Paste or write your text here (up to 20,000 characters)…"></textarea></label>
+      <label class="block text-xs text-slate-300 space-y-1">Comparison sources (Plagiarism Checker only; separate each source with a blank line)<textarea id="creator-ai-sources" rows="3" maxlength="20000" class="w-full p-3" placeholder="Paste the text you want to compare against…"></textarea></label>
+      <div class="flex flex-wrap gap-2"><button onclick="runCreatorAiTool()" id="creator-ai-run" class="rounded-xl neon-gradient text-black font-extrabold px-4 py-3">Run tool</button><button onclick="document.getElementById('creator-ai-input').value='';document.getElementById('creator-ai-output').textContent='';" class="rounded-xl bg-white/10 px-4 py-3 text-sm">Clear</button></div>
+      <div id="creator-ai-status" role="status" class="text-xs text-slate-400"></div>
+      <section class="rounded-2xl bg-black/35 border border-white/10 p-3 space-y-2"><h3 class="text-xs font-bold text-efekt-cyan">Result</h3><pre id="creator-ai-output" class="whitespace-pre-wrap break-words text-sm text-slate-100 font-sans"></pre></section>
+      <div class="border-t border-white/10 pt-4 space-y-3">
+        <h3 class="font-bold text-sm">Image Classifier</h3><p class="text-[11px] text-slate-400">Classifies visible image content using the configured vision model. Use an image URL your account is allowed to access.</p>
+        <input id="creator-ai-image-url" type="url" class="w-full p-3" placeholder="https://… image URL">
+        <input id="creator-ai-image-question" class="w-full p-3" placeholder="Optional: What should the model identify?">
+        <button onclick="runCreatorImageClassifier()" class="rounded-xl bg-efekt-purple/30 border border-efekt-purple/50 px-4 py-3 text-sm font-bold">Classify image</button>
+      </div>
+      <p class="text-[10px] text-slate-500">AI tools require AI_API_KEY on the staging service. Plagiarism checking compares only sources you provide; it is not a web-wide originality scan. Do not submit private or sensitive information unless you are comfortable sending it to the configured AI provider.</p>
+    </section>
+  </div>
+  <script>
+    function openCreatorAiLab(){const el=document.getElementById('creator-ai-modal');el.classList.remove('hidden');el.classList.add('flex');}
+    function closeCreatorAiLab(){const el=document.getElementById('creator-ai-modal');el.classList.add('hidden');el.classList.remove('flex');}
+    async function runCreatorAiTool(){
+      const tool=document.getElementById('creator-ai-tool').value;
+      const text=document.getElementById('creator-ai-input').value.trim();
+      const status=document.getElementById('creator-ai-status'), output=document.getElementById('creator-ai-output'), button=document.getElementById('creator-ai-run');
+      if(!text){status.textContent='Enter some text first.';return;}
+      const body={text};
+      if(tool==='translator') body.targetLanguage=document.getElementById('creator-ai-language').value.trim();
+      if(tool==='plagiarism-checker') body.comparisonSources=document.getElementById('creator-ai-sources').value.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+      if(tool==='translator'&&!body.targetLanguage){status.textContent='Enter a target language.';return;}
+      if(tool==='plagiarism-checker'&&!body.comparisonSources.length){status.textContent='Add at least one comparison source. This is not a web-wide scan.';return;}
+      button.disabled=true;status.textContent='Working…';output.textContent='';
+      try{const res=await fetch('/api/ai/'+encodeURIComponent(tool),{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw new Error(data.error||'Request failed');output.textContent=data.result||JSON.stringify(data,null,2);status.textContent='Completed with '+data.model+'.';}
+      catch(error){status.textContent=error.message||'Could not run the tool.';}
+      finally{button.disabled=false;}
+    }
+    async function runCreatorImageClassifier(){
+      const status=document.getElementById('creator-ai-status'),output=document.getElementById('creator-ai-output');
+      const imageUrl=document.getElementById('creator-ai-image-url').value.trim();
+      if(!imageUrl){status.textContent='Enter an image URL.';return;}
+      status.textContent='Classifying image…';output.textContent='';
+      try{const res=await fetch('/api/ai/image-classifier',{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify({imageUrl,question:document.getElementById('creator-ai-image-question').value.trim()||undefined})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Request failed');output.textContent=data.result;status.textContent='Completed with '+data.model+'.';}
+      catch(error){status.textContent=error.message||'Could not classify the image.';}
+    }
   </script>
 
 </body>
