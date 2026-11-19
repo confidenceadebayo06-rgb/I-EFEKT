@@ -18,6 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CppRankingEngine } from './engine/CppRankingEngine.js';
+import { registerAiToolRoutes } from './aiTools.js';
 
 const prisma = new PrismaClient();
 const rankingEngine = new CppRankingEngine();
@@ -108,6 +109,7 @@ app.addHook('preHandler', async (req) => {
   if (token) { try { req.user = jwt.verify(token, secret) as SessionUser; } catch { req.user = null; } }
 });
 const auth = async (req: FastifyRequest, reply: any) => { if (!req.user) return reply.code(401).send({ error: 'Please sign in to continue.' }); };
+registerAiToolRoutes(app, auth as any);
 const emitSync = async (userId: string, entityType: string, entityId: string) => {
   const row = await prisma.syncChange.create({ data: { userId, entityType, entityId } });
   io.to(`user:${userId}`).emit('sync:changed', { cursor: row.id.toString(), entity_type: entityType, entity_id: entityId });
@@ -241,6 +243,83 @@ app.get('/api/users/:id/profile', { preHandler: auth }, async (req, reply) => {
   };
 });
 
+
+// Public creator discovery APIs. All results are drawn from real I-EFEKT accounts and posts.
+app.get('/api/reels', { preHandler: auth }, async (req) => {
+  const rawLimit = Number((req.query as any).limit || 30);
+  const take = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.floor(rawLimit))) : 30;
+  const rows = await prisma.post.findMany({
+    where: { mediaType: { in: ['video', 'reel'] } },
+    take, orderBy: { createdAt: 'desc' },
+    include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } }, likes: { where: { userId: req.user!.id }, select: { id: true } }, _count: { select: { likes: true, comments: true } } }
+  });
+  return { reels: rows.map(p => ({ id: p.id, mediaUrl: p.mediaUrl, caption: p.caption, author: p.user, likes: p._count.likes, comments: p._count.comments, liked: p.likes.length > 0, createdAt: p.createdAt })) };
+});
+app.post('/api/reels', { preHandler: auth }, async (req, reply) => {
+  const p = z.object({ mediaUrl: z.string().url(), caption: z.string().max(2200).default(''), genre: z.string().max(80).optional(), track: z.string().max(160).optional() }).safeParse(req.body);
+  if (!p.success) return reply.code(400).send({ error: 'A valid mediaUrl is required; caption is limited to 2,200 characters.' });
+  const post = await prisma.post.create({ data: { ...p.data, mediaType: 'video', userId: req.user!.id } });
+  await emitSync(req.user!.id, 'post', post.id);
+  io.emit('feed:post-created', { postId: post.id });
+  return reply.code(201).send({ reelId: post.id });
+});
+app.patch('/api/reels/:id', { preHandler: auth }, async (req, reply) => {
+  const p = z.object({ caption: z.string().max(2200) }).safeParse(req.body);
+  if (!p.success) return reply.code(400).send({ error: 'A caption of up to 2,200 characters is required.' });
+  const result = await prisma.post.updateMany({ where: { id: String((req.params as any).id), userId: req.user!.id }, data: { caption: p.data.caption } });
+  if (!result.count) return reply.code(404).send({ error: 'Reel not found or not owned by you.' });
+  return { updated: true };
+});
+app.delete('/api/reels/:id', { preHandler: auth }, async (req, reply) => {
+  const result = await prisma.post.deleteMany({ where: { id: String((req.params as any).id), userId: req.user!.id } });
+  if (!result.count) return reply.code(404).send({ error: 'Reel not found or not owned by you.' });
+  return { deleted: true };
+});
+
+app.get('/api/trending', { preHandler: auth }, async (req) => {
+  const rawLimit = Number((req.query as any).limit || 30);
+  const take = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.floor(rawLimit))) : 30;
+  const rows = await prisma.post.findMany({
+    where: { createdAt: { gte: new Date(Date.now() - 7 * 86400000) } },
+    take: 250, orderBy: { createdAt: 'desc' },
+    include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } }, likes: { where: { userId: req.user!.id }, select: { id: true } }, _count: { select: { likes: true, comments: true } } }
+  });
+  const posts = rows.sort((a,b) => (b._count.likes * 2 + b._count.comments) - (a._count.likes * 2 + a._count.comments)).slice(0,take);
+  return { posts: posts.map(p => ({ id:p.id, caption:p.caption, mediaUrl:p.mediaUrl, mediaType:p.mediaType, author:p.user, likes:p._count.likes, comments:p._count.comments, liked:p.likes.length>0, createdAt:p.createdAt })), window:'7d', ranking:'recent public engagement' };
+});
+
+app.get('/api/explore', { preHandler: auth }, async (req) => {
+  const q = String((req.query as any).q || '').trim().slice(0,100);
+  const rawLimit = Number((req.query as any).limit || 30);
+  const take = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.floor(rawLimit))) : 30;
+  const rows = await prisma.post.findMany({
+    where: q ? { OR: [{ caption: { contains: q } }, { user: { is: { handle: { contains: q } } } }, { user: { is: { displayName: { contains: q } } } }] } : {},
+    take, orderBy: { createdAt: 'desc' },
+    include: { user: { select: { id:true, handle:true, displayName:true, avatarUrl:true } }, _count: { select: { likes:true, comments:true } } }
+  });
+  return { query:q, posts:rows.map(p => ({ id:p.id, caption:p.caption, mediaUrl:p.mediaUrl, mediaType:p.mediaType, author:p.user, likes:p._count.likes, comments:p._count.comments, createdAt:p.createdAt })) };
+});
+
+app.get('/api/search/suggestions', { preHandler: auth }, async (req) => {
+  const q = String((req.query as any).q || '').trim().replace(/^#/, '').slice(0,60);
+  if (q.length < 1) return { suggestions: [] };
+  const [users, posts] = await Promise.all([
+    prisma.user.findMany({ where:{ id:{not:req.user!.id}, OR:[{handle:{contains:q}},{displayName:{contains:q}}] }, take:8, select:{id:true,handle:true,displayName:true,avatarUrl:true} }),
+    prisma.post.findMany({ where:{ caption:{contains:q} }, take:40, orderBy:{createdAt:'desc'}, select:{caption:true} })
+  ]);
+  const tags = new Set<string>();
+  for (const post of posts) for (const match of post.caption.matchAll(/#([a-zA-Z0-9_]{2,40})/g)) if (match[1]!.toLowerCase().includes(q.toLowerCase())) tags.add(match[1]!);
+  return { suggestions:[...users.map(u=>({type:'creator',label:u.displayName,handle:u.handle,avatarUrl:u.avatarUrl,id:u.id})),...Array.from(tags).slice(0,8).map(tag=>({type:'hashtag',label:'#'+tag,query:tag}))] };
+});
+app.get('/api/search/autocomplete', { preHandler: auth }, async (req) => {
+  const q = String((req.query as any).q || '').trim().slice(0,100);
+  if (q.length < 2) return { query:q, creators:[], posts:[] };
+  const [creators, posts] = await Promise.all([
+    prisma.user.findMany({ where:{id:{not:req.user!.id},OR:[{handle:{contains:q}},{displayName:{contains:q}}]}, take:10, select:{id:true,handle:true,displayName:true,avatarUrl:true} }),
+    prisma.post.findMany({ where:{caption:{contains:q}}, take:10, orderBy:{createdAt:'desc'}, include:{user:{select:{id:true,handle:true,displayName:true}},_count:{select:{likes:true,comments:true}}} })
+  ]);
+  return { query:q, creators, posts:posts.map(p=>({id:p.id,caption:p.caption,author:p.user,likes:p._count.likes,comments:p._count.comments,createdAt:p.createdAt})) };
+});
 
 app.get('/api/feed', { preHandler: auth }, async (req) => {
   const [candidates, preference, follows] = await Promise.all([
