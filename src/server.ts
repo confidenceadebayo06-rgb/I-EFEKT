@@ -118,6 +118,15 @@ const sendMail = async (to: string, subject: string, html: string) => {
   await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
 };
 
+app.get('/api/auth/me', { preHandler: auth }, async (req) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    select: { id: true, handle: true, displayName: true, bio: true, avatarUrl: true }
+  });
+  if (!user) return { user: null };
+  return { user: { id: user.id, handle: user.handle, display_name: user.displayName, bio: user.bio, avatar_url: user.avatarUrl } };
+});
+
 app.get('/api/health', async (_req, reply) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -323,7 +332,7 @@ app.get('/api/search/autocomplete', { preHandler: auth }, async (req) => {
 
 app.get('/api/feed', { preHandler: auth }, async (req) => {
   const [candidates, preference, follows] = await Promise.all([
-    prisma.post.findMany({ take: 250, orderBy: { createdAt: 'desc' }, include: { user: true, likes: { where: { userId: req.user!.id } }, _count: { select: { likes: true, comments: true } } } }),
+    prisma.post.findMany({ take: 250, orderBy: { createdAt: 'desc' }, include: { user: true, likes: { where: { userId: req.user!.id } }, reactions: { select: { userId: true, reactionType: true } }, _count: { select: { likes: true, comments: true } } } }),
     prisma.preference.findUnique({ where: { userId: req.user!.id }, select: { enabled: true } }),
     prisma.follow.findMany({ where: { followerId: req.user!.id }, select: { followingId: true } })
   ]);
@@ -343,7 +352,7 @@ app.get('/api/feed', { preHandler: auth }, async (req) => {
       ordered = indexes.flatMap(index => candidates[index] ? [candidates[index]!] : []);
     } catch (error) { req.log.warn({ error }, 'C++ ranking failed; using chronological feed'); }
   }
-  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0, following: followed.has(p.userId) })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
+  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, createdAt: p.createdAt, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0, reactions: p.reactions.reduce((acc: Record<string, number>, item: { reactionType: string }) => ({ ...acc, [item.reactionType]: (acc[item.reactionType] || 0) + 1 }), {}), myReaction: p.reactions.find((item: { userId: string }) => item.userId === req.user!.id)?.reactionType || null, following: followed.has(p.userId) })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
 });
 app.get('/api/feed/ranked', { preHandler: auth }, async (req, reply) => {
   const [candidates, preference] = await Promise.all([
@@ -369,6 +378,40 @@ app.get('/api/feed/ranked', { preHandler: auth }, async (req, reply) => {
 app.post('/api/posts', { preHandler: auth }, async (req, reply) => { const p = z.object({ mediaUrl: z.string().url(), mediaType: z.string().default('video'), caption: z.string().max(2200).optional(), genre: z.string().optional(), track: z.string().optional(), originalAudio: z.boolean().optional(), filter: z.string().optional(), speed: z.number().min(.25).max(4).optional() }).safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Invalid post data. A media URL is required.' }); const post = await prisma.post.create({ data: { ...p.data, userId: req.user!.id } }); await emitSync(req.user!.id, 'post', post.id); io.emit('feed:post-created', { postId: post.id }); return reply.code(201).send({ postId: post.id }); });
 app.post('/api/posts/:id/like', { preHandler: auth }, async (req, reply) => { const postId = String((req.params as any).id); const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } }); if (!post) return reply.code(404).send({ error: 'Post not found.' }); const exists = await prisma.like.findUnique({ where: { userId_postId: { userId: req.user!.id, postId } } }); if (exists) await prisma.like.delete({ where: { id: exists.id } }); else await prisma.like.create({ data: { userId: req.user!.id, postId } }); await emitSync(req.user!.id, 'like', postId); return { liked: !exists }; });
 app.post('/api/posts/:id/comments', { preHandler: auth }, async (req, reply) => { const postId = String((req.params as any).id); const body = String((req.body as any)?.body || '').trim(); if (!body || body.length > 1000) return reply.code(400).send({ error: 'Comment must be 1–1000 characters.' }); const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } }); if (!post) return reply.code(404).send({ error: 'Post not found.' }); const comment = await prisma.comment.create({ data: { userId: req.user!.id, postId, body } }); return reply.code(201).send({ comment }); });
+
+const allowedReactions = ['love', 'laugh', 'wow', 'sad', 'angry'] as const;
+const reactionSchema = z.object({ reaction: z.enum(allowedReactions) });
+app.get('/api/posts/:id/comments', { preHandler: auth }, async (req, reply) => {
+  const postId = String((req.params as any).id);
+  const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } });
+  if (!post) return reply.code(404).send({ error: 'Post not found.' });
+  const comments = await prisma.comment.findMany({
+    where: { postId }, orderBy: { createdAt: 'asc' }, take: 100,
+    include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } } }
+  });
+  return { comments };
+});
+app.post('/api/posts/:id/reaction', { preHandler: auth }, async (req, reply) => {
+  const parsed = reactionSchema.safeParse(req.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'Choose a supported reaction.' });
+  const postId = String((req.params as any).id);
+  const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } });
+  if (!post) return reply.code(404).send({ error: 'Post not found.' });
+  const key = { userId_postId: { userId: req.user!.id, postId } };
+  const existing = await prisma.postReaction.findUnique({ where: key });
+  if (existing?.reactionType === parsed.data.reaction) {
+    await prisma.postReaction.delete({ where: { id: existing.id } });
+    return { reaction: null };
+  }
+  await prisma.postReaction.upsert({
+    where: key,
+    create: { userId: req.user!.id, postId, reactionType: parsed.data.reaction },
+    update: { reactionType: parsed.data.reaction }
+  });
+  await emitSync(req.user!.id, 'post-reaction', postId);
+  return { reaction: parsed.data.reaction };
+});
+
 app.post('/api/users/:id/follow', { preHandler: auth }, async (req, reply) => { const followingId = (req.params as any).id; if (followingId === req.user!.id) return reply.code(400).send({ error: 'You cannot follow yourself.' }); const targetUser = await prisma.user.findUnique({ where: { id: followingId }, select: { id: true } }); if (!targetUser) return reply.code(404).send({ error: 'Creator not found.' }); const where = { followerId_followingId: { followerId: req.user!.id, followingId } }; const existing = await prisma.follow.findUnique({ where }); if (existing) await prisma.follow.delete({ where: { id: existing.id } }); else await prisma.follow.create({ data: { followerId: req.user!.id, followingId } }); await emitSync(req.user!.id, 'follow', followingId); return { following: !existing }; });
 app.post('/api/reports', { preHandler: auth }, async (req, reply) => { const p = z.object({ postId: z.string().optional(), reason: z.string().min(2).max(60), details: z.string().max(1000).optional() }).safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Invalid report.' }); const report = await prisma.report.create({ data: { reporterId: req.user!.id, ...p.data } }); return reply.code(201).send({ reportId: report.id, status: report.status }); });
 app.get('/api/sync/changes', { preHandler: auth }, async (req) => { const after = BigInt(String((req.query as any).after || '0')); const rows = await prisma.syncChange.findMany({ where: { userId: req.user!.id, id: { gt: after } }, orderBy: { id: 'asc' }, take: 100 }); return { changes: rows.map(r => ({ cursor: r.id.toString(), entity_type: r.entityType, entity_id: r.entityId })), nextCursor: rows.at(-1)?.id.toString() || after.toString() }; });
@@ -393,11 +436,57 @@ app.post('/api/stories', { preHandler: auth }, async (req, reply) => {
   return reply.code(201).send({ story });
 });
 app.get('/api/stories/feed', { preHandler: auth }, async (req) => {
-  const stories = await prisma.story.findMany({ where: { expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } } }, orderBy: { createdAt: 'asc' }, take: 500 });
+  const stories = await prisma.story.findMany({ where: { expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } }, reactions: { where: { userId: req.user!.id }, select: { reactionType: true } }, _count: { select: { reactions: true, replies: true } } }, orderBy: { createdAt: 'asc' }, take: 500 });
   const grouped = new Map<string, any>();
-  for (const story of stories) { const key = story.userId; if (!grouped.has(key)) grouped.set(key, { user: story.user, stories: [] }); grouped.get(key).stories.push({ id: story.id, text: story.text, mediaUrl: story.mediaUrl, createdAt: story.createdAt, expiresAt: story.expiresAt }); }
-  return { users: [...grouped.values()], stories, viewerId: req.user!.id };
+  for (const story of stories) { const key = story.userId; if (!grouped.has(key)) grouped.set(key, { user: story.user, stories: [] }); grouped.get(key).stories.push({ id: story.id, text: story.text, mediaUrl: story.mediaUrl, createdAt: story.createdAt, expiresAt: story.expiresAt, reactionsCount: story._count.reactions, repliesCount: story._count.replies, myReaction: story.reactions[0]?.reactionType || null }); }
+  return { users: [...grouped.values()], stories: stories.map(story => ({ id: story.id, userId: story.userId, text: story.text, mediaUrl: story.mediaUrl, createdAt: story.createdAt, expiresAt: story.expiresAt, user: story.user, reactionsCount: story._count.reactions, repliesCount: story._count.replies, myReaction: story.reactions[0]?.reactionType || null })), viewerId: req.user!.id };
 });
+
+app.post('/api/stories/:id/reaction', { preHandler: auth }, async (req, reply) => {
+  const parsed = reactionSchema.safeParse(req.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'Choose a supported reaction.' });
+  const storyId = String((req.params as any).id);
+  const story = await prisma.story.findFirst({ where: { id: storyId, expiresAt: { gt: new Date() } }, select: { id: true, userId: true } });
+  if (!story) return reply.code(404).send({ error: 'Story not found or expired.' });
+  const key = { userId_storyId: { userId: req.user!.id, storyId } };
+  const existing = await prisma.storyReaction.findUnique({ where: key });
+  if (existing?.reactionType === parsed.data.reaction) {
+    await prisma.storyReaction.delete({ where: { id: existing.id } });
+    return { reaction: null };
+  }
+  await prisma.storyReaction.upsert({
+    where: key,
+    create: { userId: req.user!.id, storyId, reactionType: parsed.data.reaction },
+    update: { reactionType: parsed.data.reaction }
+  });
+  await emitSync(story.userId, 'story-reaction', storyId);
+  return { reaction: parsed.data.reaction };
+});
+app.get('/api/stories/:id/replies', { preHandler: auth }, async (req, reply) => {
+  const storyId = String((req.params as any).id);
+  const story = await prisma.story.findFirst({ where: { id: storyId, expiresAt: { gt: new Date() } }, select: { id: true } });
+  if (!story) return reply.code(404).send({ error: 'Story not found or expired.' });
+  const replies = await prisma.storyReply.findMany({
+    where: { storyId }, orderBy: { createdAt: 'asc' }, take: 100,
+    include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } } }
+  });
+  return { replies };
+});
+app.post('/api/stories/:id/replies', { preHandler: auth }, async (req, reply) => {
+  const storyId = String((req.params as any).id);
+  const body = String((req.body as any)?.body || '').trim();
+  if (!body || body.length > 1000) return reply.code(400).send({ error: 'Reply must be 1–1000 characters.' });
+  const story = await prisma.story.findFirst({ where: { id: storyId, expiresAt: { gt: new Date() } }, select: { id: true, userId: true } });
+  if (!story) return reply.code(404).send({ error: 'Story not found or expired.' });
+  const replyRecord = await prisma.storyReply.create({
+    data: { storyId, userId: req.user!.id, body },
+    include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } } }
+  });
+  await emitSync(story.userId, 'story-reply', storyId);
+  io.to(`user:${story.userId}`).emit('story:reply', { storyId, reply: replyRecord });
+  return reply.code(201).send({ reply: replyRecord });
+});
+
 app.delete('/api/stories/:id', { preHandler: auth }, async (req, reply) => { const id = (req.params as any).id; const result = await prisma.story.deleteMany({ where: { id, userId: req.user!.id } }); return result.count ? { ok: true } : reply.code(404).send({ error: 'Status not found or not yours.' }); });
 app.post('/api/groups', { preHandler: auth }, async (req, reply) => { const name = String((req.body as any)?.name || '').trim(); const memberIds = Array.isArray((req.body as any)?.memberIds) ? (req.body as any).memberIds.map(String) : []; if (!name || name.length > 80) return reply.code(400).send({ error: 'Group name is required.' }); const ids = [...new Set([req.user!.id, ...memberIds])]; const group = await prisma.socialGroup.create({ data: { name, ownerId: req.user!.id, members: { create: ids.map(userId => ({ userId })) } } }); return reply.code(201).send({ group }); });
 app.get('/api/groups', { preHandler: auth }, async (req) => ({ groups: await prisma.socialGroup.findMany({ where: { members: { some: { userId: req.user!.id } } }, include: { _count: { select: { members: true } } } }) }));
