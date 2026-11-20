@@ -162,6 +162,26 @@
     body.skin-mono { filter:grayscale(.88); }
     body.compact-feed .snap-item { height:78vh; min-height:520px; }
     body.compact-feed .snap-item .reel-caption, body.compact-feed .snap-item .reel-description { display:none !important; }
+  
+    /* Instagram-style responsive story viewer */
+    .iefekt-story-modal { padding: 0; background: rgba(0,0,0,.96); }
+    .iefekt-story-shell { position:relative; isolation:isolate; width:100vw; height:100dvh; overflow:hidden; background:#09090b; color:#fff; display:flex; flex-direction:column; justify-content:space-between; }
+    .iefekt-story-media { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; }
+    .iefekt-story-shade { position:absolute; inset:0; z-index:1; pointer-events:none; background:linear-gradient(180deg,rgba(0,0,0,.62),transparent 26%,transparent 60%,rgba(0,0,0,.7)); }
+    .iefekt-story-top,.iefekt-story-bottom { position:relative; z-index:4; padding: max(14px,env(safe-area-inset-top)) 14px 0; }
+    .iefekt-story-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; }
+    .iefekt-story-progress { display:flex; gap:4px; width:100%; }
+    .iefekt-story-segment { height:3px; flex:1; border-radius:99px; overflow:hidden; background:rgba(255,255,255,.34); }
+    .iefekt-story-segment-fill { display:block; height:100%; background:#fff; border-radius:99px; transition:width .05s linear; }
+    .iefekt-story-icon { width:36px; height:36px; flex:0 0 36px; border-radius:50%; color:#fff; background:rgba(0,0,0,.42); border:1px solid rgba(255,255,255,.22); display:grid; place-items:center; font-size:15px; }
+    .iefekt-story-hit { position:absolute; z-index:2; top:22%; bottom:22%; width:34%; border:0; background:transparent; }
+    .iefekt-story-hit-left { left:0; }
+    .iefekt-story-hit-right { right:0; }
+    .iefekt-story-bottom { padding:0 14px max(18px,env(safe-area-inset-bottom)); display:grid; gap:14px; }
+    .iefekt-story-reply { min-width:0; flex:1; height:42px; border-radius:999px; padding:0 16px; color:#fff; background:rgba(0,0,0,.48); border:1px solid rgba(255,255,255,.7); outline:none; font-size:13px; }
+    .iefekt-story-reply::placeholder { color:rgba(255,255,255,.8); }
+    @media (min-width:640px) { .iefekt-story-modal { padding:18px; } .iefekt-story-shell { width:min(440px,calc(100vw - 36px)); height:min(900px,calc(100dvh - 36px)); border-radius:22px; border:1px solid rgba(255,255,255,.16); box-shadow:0 24px 90px rgba(0,0,0,.7); } }
+    @media (prefers-reduced-motion:reduce) { .iefekt-story-segment-fill { transition:none; } }
   </style>
 <style>.iefekt-restricted [data-content-sensitivity="sensitive"],.iefekt-restricted .content-sensitive{display:none!important}</style>
   <style id="iefekt-visual-refresh">
@@ -917,38 +937,37 @@
   <!-- ===================================================================== -->
   <!-- MODAL 4: EPHEMERAL STORY VIEWER                                       -->
   <!-- ===================================================================== -->
-  <div id="story-modal" class="fixed inset-0 z-50 bg-black/95 hidden items-center justify-center p-4">
-    <div class="relative w-full max-w-sm h-[82vh] rounded-3xl overflow-hidden bg-efekt-card border border-white/15 flex flex-col justify-between p-5">
-      <img id="story-img" src="" class="absolute inset-0 w-full h-full object-cover opacity-80" /><video id="story-video" class="absolute inset-0 w-full h-full object-contain bg-black hidden" playsinline muted autoplay></video>
-      <div class="relative z-10 space-y-2">
-        <!-- Auto-advancing Progress Bar -->
-        <div class="w-full h-1 bg-white/25 rounded-full overflow-hidden">
-          <div id="story-progress-bar" class="h-full bg-efekt-cyan w-0 transition-all duration-100"></div>
-        </div>
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span id="story-user" class="font-bold text-sm drop-shadow">@Creator</span>
-            <span class="text-[10px] bg-black/60 px-2 py-0.5 rounded-full">Live Story</span>
+  <div id="story-modal" class="iefekt-story-modal fixed inset-0 z-50 bg-black hidden items-center justify-center" aria-label="Story viewer" role="dialog" aria-modal="true">
+    <section class="iefekt-story-shell" aria-label="Story">
+      <img id="story-img" src="" alt="" class="iefekt-story-media" />
+      <video id="story-video" class="iefekt-story-media hidden" playsinline muted autoplay></video>
+      <div class="iefekt-story-shade"></div>
+      <div class="iefekt-story-top">
+        <div id="story-progress-track" class="iefekt-story-progress" aria-hidden="true"></div>
+        <div class="iefekt-story-heading">
+          <div class="flex items-center gap-2 min-w-0">
+            <img id="story-avatar" src="" alt="" class="w-9 h-9 rounded-full object-cover border border-white/70" />
+            <span id="story-user" class="font-semibold text-sm truncate">@Creator</span>
+            <span class="text-[10px] text-white/70">Story</span>
           </div>
-          <button onclick="closeStory()" class="w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
+          <div class="flex items-center gap-2">
+            <button id="story-pause-btn" onclick="toggleStoryPause()" class="iefekt-story-icon" aria-label="Pause story">Ⅱ</button>
+            <button onclick="closeStory()" class="iefekt-story-icon" aria-label="Close story">✕</button>
+          </div>
         </div>
       </div>
-
-      <div class="relative z-10 space-y-3">
-        <div class="glass p-3 rounded-2xl text-center">
-          <p id="story-caption" class="text-xs font-semibold text-white">Behind the scenes!</p>
-        </div>
-        <!-- Quick Emoji Reactions & Reply -->
+      <button class="iefekt-story-hit iefekt-story-hit-left" onclick="previousStory()" aria-label="Previous story"></button>
+      <button class="iefekt-story-hit iefekt-story-hit-right" onclick="nextStory()" aria-label="Next story"></button>
+      <div class="iefekt-story-bottom">
+        <p id="story-caption" class="text-sm font-medium text-white drop-shadow-lg"></p>
         <div class="flex items-center gap-2">
-          <input id="story-reply-input" type="text" placeholder="Reply to story..." class="flex-1 bg-black/70 border border-white/20 rounded-full px-3.5 py-2 text-xs text-white focus:outline-none" />
-          <button onclick="reactStory('🔥')" class="w-9 h-9 rounded-full glass text-base">🔥</button>
-          <button onclick="reactStory('😍')" class="w-9 h-9 rounded-full glass text-base">😍</button>
-          <button onclick="sendStoryReply()" class="w-9 h-9 rounded-full bg-efekt-cyan text-black text-xs font-bold"><i class="fa-solid fa-paper-plane"></i></button>
+          <input id="story-reply-input" type="text" placeholder="Reply to story..." autocomplete="off" class="iefekt-story-reply" />
+          <button onclick="reactStory('❤️')" class="iefekt-story-icon" aria-label="Send heart reaction">♥</button>
+          <button onclick="reactStory('🔥')" class="iefekt-story-icon" aria-label="Send fire reaction">🔥</button>
+          <button onclick="sendStoryReply()" class="iefekt-story-icon" aria-label="Send reply">➤</button>
         </div>
       </div>
-    </div>
+    </section>
   </div>
 
   <!-- ===================================================================== -->
@@ -1205,43 +1224,94 @@
       `).join("");
     }
 
-    function openStory(idx) {
-      currentStoryIndex = idx;
-      const s = storiesData[idx];
-      const storyImage=document.getElementById('story-img'),storyVideo=document.getElementById('story-video');
-      const isVideo=!!s.mediaUrl&&/\.(mp4|webm|mov|m4v)(?:\?|$)/i.test(s.mediaUrl);
-      if(isVideo){storyImage.classList.add('hidden');storyVideo.classList.remove('hidden');storyVideo.src=s.mediaUrl;storyVideo.play().catch(()=>{});}else{storyVideo.pause();storyVideo.removeAttribute('src');storyVideo.load();storyVideo.classList.add('hidden');storyImage.classList.remove('hidden');storyImage.src=s.img||s.mediaUrl||'';}
-      document.getElementById("story-user").textContent = s.user;
-      document.getElementById("story-caption").textContent = s.caption;
+    const STORY_DURATION_MS = 6000;
+    let storyElapsedMs = 0;
+    let storyLastTick = 0;
+    let storyPaused = false;
 
+    function renderStoryProgress() {
+      const track = document.getElementById("story-progress-track");
+      if (!track) return;
+      track.innerHTML = storiesData.map((_, i) => `
+        <span class="iefekt-story-segment"><span class="iefekt-story-segment-fill" style="width:${i < currentStoryIndex ? 100 : i === currentStoryIndex ? Math.min(100, storyElapsedMs / STORY_DURATION_MS * 100) : 0}%"></span></span>
+      `).join("");
+    }
+
+    function openStory(idx) {
+      if (!Array.isArray(storiesData) || idx < 0 || idx >= storiesData.length) return closeStory();
+      currentStoryIndex = idx;
+      storyElapsedMs = 0;
+      storyPaused = false;
+      clearInterval(storyTimerInterval);
+      const s = storiesData[idx];
+      const storyImage = document.getElementById("story-img");
+      const storyVideo = document.getElementById("story-video");
+      const isVideo = !!s.mediaUrl && /\.(mp4|webm|mov|m4v)(?:\?|$)/i.test(s.mediaUrl);
+      if (isVideo) {
+        storyImage.classList.add("hidden");
+        storyVideo.classList.remove("hidden");
+        storyVideo.src = s.mediaUrl;
+        storyVideo.play().catch(() => {});
+      } else {
+        storyVideo.pause();
+        storyVideo.removeAttribute("src");
+        storyVideo.load();
+        storyVideo.classList.add("hidden");
+        storyImage.classList.remove("hidden");
+        storyImage.src = s.img || s.mediaUrl || "";
+      }
+      const avatar = document.getElementById("story-avatar");
+      avatar.src = s.avatar || "";
+      avatar.alt = s.user || "Creator";
+      document.getElementById("story-user").textContent = s.user || "@Creator";
+      document.getElementById("story-caption").textContent = s.caption || "";
+      document.getElementById("story-reply-input").value = "";
+      document.getElementById("story-pause-btn").textContent = "Ⅱ";
       const modal = document.getElementById("story-modal");
       modal.classList.remove("hidden");
       modal.classList.add("flex");
-
-      const bar = document.getElementById("story-progress-bar");
-      bar.style.width = "0%";
-      clearInterval(storyTimerInterval);
-      let pct = 0;
+      document.body.classList.add("overflow-hidden");
+      renderStoryProgress();
+      storyLastTick = Date.now();
       storyTimerInterval = setInterval(() => {
-        pct += 2;
-        bar.style.width = `${pct}%`;
-        if (pct >= 100) {
-          clearInterval(storyTimerInterval);
-          if (currentStoryIndex + 1 < storiesData.length) {
-            openStory(currentStoryIndex + 1);
-          } else {
-            closeStory();
-          }
-        }
-      }, 90);
+        if (storyPaused) return;
+        const now = Date.now();
+        storyElapsedMs += Math.min(250, now - storyLastTick);
+        storyLastTick = now;
+        renderStoryProgress();
+        if (storyElapsedMs >= STORY_DURATION_MS) nextStory();
+      }, 50);
+    }
+
+    function nextStory() {
+      if (currentStoryIndex + 1 < storiesData.length) openStory(currentStoryIndex + 1);
+      else closeStory();
+    }
+
+    function previousStory() {
+      if (storyElapsedMs > 700) openStory(currentStoryIndex);
+      else if (currentStoryIndex > 0) openStory(currentStoryIndex - 1);
+      else openStory(0);
+    }
+
+    function toggleStoryPause() {
+      storyPaused = !storyPaused;
+      storyLastTick = Date.now();
+      document.getElementById("story-pause-btn").textContent = storyPaused ? "▶" : "Ⅱ";
+      document.getElementById("story-pause-btn").setAttribute("aria-label", storyPaused ? "Resume story" : "Pause story");
+      const video = document.getElementById("story-video");
+      if (video && video.src) storyPaused ? video.pause() : video.play().catch(() => {});
     }
 
     function closeStory() {
       clearInterval(storyTimerInterval);
-      const video=document.getElementById('story-video');if(video){video.pause();video.removeAttribute('src');video.load();}
+      storyTimerInterval = null;
+      const video = document.getElementById("story-video");
+      if (video) { video.pause(); video.removeAttribute("src"); video.load(); }
       const modal = document.getElementById("story-modal");
       modal.classList.add("hidden");
       modal.classList.remove("flex");
+      document.body.classList.remove("overflow-hidden");
     }
 
     function reactStory(emoji) {
