@@ -118,6 +118,15 @@ const sendMail = async (to: string, subject: string, html: string) => {
   await mailer.sendMail({ from: process.env.EMAIL_FROM || 'I-EFEKT <no-reply@iefekt.local>', to, subject, html });
 };
 
+app.get('/api/auth/me', { preHandler: auth }, async (req) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    select: { id: true, handle: true, displayName: true, bio: true, avatarUrl: true }
+  });
+  if (!user) return { user: null };
+  return { user: { id: user.id, handle: user.handle, display_name: user.displayName, bio: user.bio, avatar_url: user.avatarUrl } };
+});
+
 app.get('/api/health', async (_req, reply) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -343,7 +352,7 @@ app.get('/api/feed', { preHandler: auth }, async (req) => {
       ordered = indexes.flatMap(index => candidates[index] ? [candidates[index]!] : []);
     } catch (error) { req.log.warn({ error }, 'C++ ranking failed; using chronological feed'); }
   }
-  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0, reactions: p.reactions.reduce((acc: Record<string, number>, item: { reactionType: string }) => ({ ...acc, [item.reactionType]: (acc[item.reactionType] || 0) + 1 }), {}), myReaction: p.reactions.find((item: { userId: string }) => item.userId === req.user!.id)?.reactionType || null, following: followed.has(p.userId) })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
+  return { posts: ordered.slice(0, 50).map(p => ({ postId: p.id, author: p.user.handle, authorId: p.user.id, displayName: p.user.displayName, avatar: p.user.avatarUrl, createdAt: p.createdAt, mediaUrl: p.mediaUrl, mediaType: p.mediaType, caption: p.caption, likes: p._count.likes, commentsCount: p._count.comments, liked: p.likes.length > 0, reactions: p.reactions.reduce((acc: Record<string, number>, item: { reactionType: string }) => ({ ...acc, [item.reactionType]: (acc[item.reactionType] || 0) + 1 }), {}), myReaction: p.reactions.find((item: { userId: string }) => item.userId === req.user!.id)?.reactionType || null, following: followed.has(p.userId) })), ranking: { engine: rankingEngine.status().available ? 'C++20' : 'chronological-fallback', personalization: preference?.enabled ? 'enabled-by-user' : 'disabled' } };
 });
 app.get('/api/feed/ranked', { preHandler: auth }, async (req, reply) => {
   const [candidates, preference] = await Promise.all([
