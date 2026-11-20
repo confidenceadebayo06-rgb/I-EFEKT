@@ -427,10 +427,10 @@ app.post('/api/stories', { preHandler: auth }, async (req, reply) => {
   return reply.code(201).send({ story });
 });
 app.get('/api/stories/feed', { preHandler: auth }, async (req) => {
-  const stories = await prisma.story.findMany({ where: { expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } } }, orderBy: { createdAt: 'asc' }, take: 500 });
+  const stories = await prisma.story.findMany({ where: { expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, handle: true, displayName: true, avatarUrl: true } }, reactions: { where: { userId: req.user!.id }, select: { reactionType: true } }, _count: { select: { reactions: true, replies: true } } }, orderBy: { createdAt: 'asc' }, take: 500 });
   const grouped = new Map<string, any>();
-  for (const story of stories) { const key = story.userId; if (!grouped.has(key)) grouped.set(key, { user: story.user, stories: [] }); grouped.get(key).stories.push({ id: story.id, text: story.text, mediaUrl: story.mediaUrl, createdAt: story.createdAt, expiresAt: story.expiresAt }); }
-  return { users: [...grouped.values()], stories, viewerId: req.user!.id };
+  for (const story of stories) { const key = story.userId; if (!grouped.has(key)) grouped.set(key, { user: story.user, stories: [] }); grouped.get(key).stories.push({ id: story.id, text: story.text, mediaUrl: story.mediaUrl, createdAt: story.createdAt, expiresAt: story.expiresAt, reactionsCount: story._count.reactions, repliesCount: story._count.replies, myReaction: story.reactions[0]?.reactionType || null }); }
+  return { users: [...grouped.values()], stories: stories.map(story => ({ id: story.id, userId: story.userId, text: story.text, mediaUrl: story.mediaUrl, createdAt: story.createdAt, expiresAt: story.expiresAt, user: story.user, reactionsCount: story._count.reactions, repliesCount: story._count.replies, myReaction: story.reactions[0]?.reactionType || null })), viewerId: req.user!.id };
 });
 
 app.post('/api/stories/:id/reaction', { preHandler: auth }, async (req, reply) => {
