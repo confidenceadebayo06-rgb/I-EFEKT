@@ -1,0 +1,43 @@
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: iefekt_root_dev_password
+      MYSQL_DATABASE: iefekt
+      MYSQL_USER: iefekt
+      MYSQL_PASSWORD: iefekt_dev_password
+    command: ["mysqld","--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
+    ports: ["3306:3306"]
+    volumes: ["iefekt_db:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD-SHELL","mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server","--appendonly","yes"]
+    ports: ["6379:6379"]
+    volumes: ["iefekt_redis:/data"]
+    healthcheck:
+      test: ["CMD","redis-cli","ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000","9001:9001"]
+    volumes: ["iefekt_media:/data"]
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["1025:1025","8025:8025"]
+volumes:
+  iefekt_db:
+  iefekt_redis:
+  iefekt_media:

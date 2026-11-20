@@ -1,0 +1,11 @@
+import { mkdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+mkdirSync(path.join(root,'build'),{recursive:true});
+const binaryName=process.platform==='win32'?'iefekt-engine.exe':'iefekt-engine';
+const result=spawnSync(process.env.CXX||'g++',['-O3','-DNDEBUG','-std=c++20','-pthread','-Wall','-Wextra','-o',path.join(root,'build',binaryName),path.join(root,'src','engine','worker.cpp')],{cwd:root,stdio:'inherit'});
+if(result.error)throw result.error;
+if(result.status!==0)process.exit(result.status||1);
+console.log(`Built build/${binaryName}`);
