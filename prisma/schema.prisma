@@ -26,7 +26,6 @@ model User {
   postReactions PostReaction[]
   storyReactions StoryReaction[]
   storyReplies StoryReply[]
-  reactions PostReaction[]
   preferences Preference?
   stories Story[]
   groupMemberships GroupMember[]
@@ -78,6 +77,7 @@ model Post {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   likes Like[]
   comments Comment[]
+  reactions PostReaction[]
   @@index([createdAt])
   @@index([userId, createdAt])
 }
